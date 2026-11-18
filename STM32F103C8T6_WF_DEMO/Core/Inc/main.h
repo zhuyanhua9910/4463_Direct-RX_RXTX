@@ -69,6 +69,16 @@ void Error_Handler(void);
 
 /* USER CODE BEGIN Private defines */
 
+/* ---- 用户按键 S2 / S3 ----------------------------------------------------
+ * 硬件：S2 - PB6，S3 - PB7，按下接地（低电平有效），引脚内部上拉
+ * 说明：若在 CubeMX 里也把这两个脚配成 GPIO_Input + Pull-up，
+ *       重新生成的宏定义与此处取值完全相同，不会冲突。
+ * ------------------------------------------------------------------------ */
+#define S2_Pin            GPIO_PIN_6
+#define S2_GPIO_Port      GPIOB
+#define S3_Pin            GPIO_PIN_7
+#define S3_GPIO_Port      GPIOB
+
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

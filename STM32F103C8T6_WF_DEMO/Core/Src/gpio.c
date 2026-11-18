@@ -60,6 +60,12 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(CHOOSE_MODE_GPIO_Port, &GPIO_InitStruct);
 
+  /*Configure GPIO pins : S2_Pin S3_Pin (输入 + 上拉，按下为低电平) */
+  GPIO_InitStruct.Pin = S2_Pin|S3_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
   /*Configure GPIO pins : SDN_Pin SPI_CS_Pin */
   GPIO_InitStruct.Pin = SDN_Pin|SPI_CS_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;

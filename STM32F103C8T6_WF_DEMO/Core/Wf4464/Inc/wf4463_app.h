@@ -74,7 +74,7 @@ typedef struct
     uint8_t  cts;       /* 0xFF = 芯片就绪；其它值 = CTS 超时，SPI 其实没通 */
     uint16_t part;      /* 0x4463 */
     uint8_t  chiprev;   /* 0x22 */
-    uint8_t  xo_tune;   /* 读回 GLOBAL_XO_TUNE，配置生效时应为 0x52 */
+    uint8_t  xo_tune;   /* 读回 GLOBAL_XO_TUNE，配置生效时应为 0x66 */
     uint8_t  pa_pwr;    /* 读回 PA_PWR_LVL，配置生效时应为 0x7F */
     uint8_t  state;     /* REQUEST_DEVICE_STATE：3=READY 7=TX 8=RX；0 或 >8 都是异常 */
     uint8_t  rssi_raw;  /* GET_MODEM_STATUS.CURR_RSSI，0 = 射频前端没工作 */
@@ -118,6 +118,21 @@ int8_t wf4463_tx(uint8_t channel, const uint8_t *data, uint8_t len);
  * @brief  启动接收
  */
 int8_t wf4463_rx_start(uint8_t channel);
+
+/**
+ * @brief  直收（Raw RX）：芯片只做解调，比特流直接从 GPIO1 输出
+ * @param  channel 信道号（单频应用填 0）
+ * @note   不经过包处理器、MCU 侧不取 FIFO，芯片常驻 RX 状态。
+ *         与双向包模式共用同一份射频配置（radio_config.h），
+ *         切换只重配 GPIO 和接收状态，不重写属性表。
+ */
+int8_t wf4463_rawrx_start(uint8_t channel);
+
+/**
+ * @brief  从直收切回双向包：恢复 GPIO 配置并挂接收
+ * @param  channel 信道号（单频应用填 0）
+ */
+int8_t wf4463_packet_resume(uint8_t channel);
 
 /**
  * @brief  等待并取出一包（阻塞）

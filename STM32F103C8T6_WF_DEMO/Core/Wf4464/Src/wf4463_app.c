@@ -337,6 +337,70 @@ int8_t wf4463_rx_start(uint8_t channel)
     return WF4463_OK;
 }
 
+/* ------------------------------------------------------------------ */
+/* 直收（Raw RX）                                                      */
+/*                                                                    */
+/* GPIO_PIN_CFG 每个字节：bit6 = PULL_EN，bit5:0 = MODE                */
+/* MODE 取值见 wf446x_defs.h 的 GPIOx_MODE_ENUM：                      */
+/*   20 = RX_DATA    解调后的比特流                                     */
+/*   32 = TX_STATE   E10 模块发射开关                                   */
+/*   33 = RX_STATE   E10 模块接收开关                                   */
+/*                                                                    */
+/* 双向包：GPIO2/GPIO3 驱动模块的收发开关，GPIO0/GPIO1 不动作           */
+/* 直收  ：开关配置保持不变，额外把 GPIO1 配成 RX_DATA 输出比特流       */
+/* ------------------------------------------------------------------ */
+#define WF4463_GPIO_PULL_EN        0x40u
+#define WF4463_GPIO_MODE_RX_DATA   20u
+#define WF4463_GPIO_MODE_TX_STATE  32u
+#define WF4463_GPIO_MODE_RX_STATE  33u
+
+static void wf4463_gpio_packet(void)
+{
+    wf446x_gpio_pin_cfg(0x00u, 0x00u,
+                        WF4463_GPIO_PULL_EN | WF4463_GPIO_MODE_TX_STATE,
+                        WF4463_GPIO_PULL_EN | WF4463_GPIO_MODE_RX_STATE,
+                        0x00u, 0x00u, 0x00u);
+}
+
+static void wf4463_gpio_rawrx(void)
+{
+    wf446x_gpio_pin_cfg(0x00u,
+                        WF4463_GPIO_PULL_EN | WF4463_GPIO_MODE_RX_DATA,
+                        WF4463_GPIO_PULL_EN | WF4463_GPIO_MODE_TX_STATE,
+                        WF4463_GPIO_PULL_EN | WF4463_GPIO_MODE_RX_STATE,
+                        0x00u, 0x00u, 0x00u);
+}
+
+int8_t wf4463_rawrx_start(uint8_t channel)
+{
+    /* RX/TX 不能直接互切，先回 READY */
+    wf446x_change_state(WF446X_CMD_CHANGE_STATE_ARG_NEW_STATE_ENUM_READY);
+    (void)radio_comm_PollCTS();
+
+    /* 复位 RX FIFO：包模式留下的数据不清掉，切回来后长度字节会乱 */
+    wf446x_fifo_info(0x02u);
+
+    /* GPIO1 改成 RX_DATA 输出，解调比特流从这里出去 */
+    wf4463_gpio_rawrx();
+
+    wf4463_irq_read_clear();
+
+    /* 三个 NEXT_STATE 全给 RX：收完包 / 出错都自动回到接收，掉不出 RX */
+    wf446x_start_rx(channel, 0, 0,
+                    WF446X_CMD_CHANGE_STATE_ARG_NEW_STATE_ENUM_RX,
+                    WF446X_CMD_CHANGE_STATE_ARG_NEW_STATE_ENUM_RX,
+                    WF446X_CMD_CHANGE_STATE_ARG_NEW_STATE_ENUM_RX);
+
+    return WF4463_OK;
+}
+
+int8_t wf4463_packet_resume(uint8_t channel)
+{
+    /* GPIO1 收回，恢复 GPIO2/GPIO3 的 E10 收发开关 */
+    wf4463_gpio_packet();
+    return wf4463_rx_start(channel);
+}
+
 int16_t wf4463_rx_fetch(uint8_t *buf, uint8_t max_len, uint8_t *out_len,
                         uint32_t timeout_ms)
 {

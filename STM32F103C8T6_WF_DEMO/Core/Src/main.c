@@ -25,6 +25,18 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
+/* 单个按键的运行时状态 */
+typedef struct
+{
+    GPIO_TypeDef *port;        /* 端口 */
+    uint16_t      pin;         /* 引脚 */
+    const char   *name;        /* 打印用名字 */
+    uint8_t       raw;         /* 上一次采样电平：0=按下 1=松开 */
+    uint8_t       stable;      /* 消抖确认后的电平 */
+    uint32_t      changeTick;  /* 采样电平最后一次变化的时刻 */
+    uint32_t      downTick;    /* 本次按下的时刻（用于算按住时长） */
+} Key_t;
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -51,6 +63,17 @@
 #define ACK_SEQ_OFS 9 /*WF  HELLO,共九字节，序号从第九字节开始*/
 #define ACK_TIMEOUT_MS 100 /*主机等应答的时间*/
 #define ACK_ERR_LEN 0x01 /*错误码：长度/格式错误*/
+
+/* ---------- 按键扫描参数 ---------- */
+#define KEY_NUM           2     /* 按键个数：S2、S3 */
+#define KEY_DEBOUNCE_MS   20    /* 消抖时间（ms），机械抖动一般 < 20ms */
+#define KEY_DOWN          0    /* 归一化电平：0 = 按下（硬件低有效） */
+#define KEY_UP            1   /* 归一化电平：1 = 松开 */
+
+/* ---------- 工作模式 ---------- */
+#define MODE_RAW_RX       0    /* 直收：解调比特流从 GPIO1 输出 */
+#define MODE_PACKET       1    /* 双向包收发（原有逻辑） */
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -67,6 +90,19 @@ static uint8_t  rxBuf[64];
 static uint16_t txSeq = 0;
 static uint8_t  gRole = ROLE_RX;             /* 当前角色：ROLE_TX / ROLE_RX */
 static uint8_t ackBuf[8];/*应答帧缓冲区*/
+static uint32_t nextTx = 0;                  /* 下一次发送的节拍时刻（ms），切换模式时清 0 */
+
+/* 按键表：上电默认松开 */
+static Key_t s_keys[KEY_NUM] =
+{
+    { S2_GPIO_Port, S2_Pin, "S2", KEY_UP, KEY_UP, 0, 0 },
+    { S3_GPIO_Port, S3_Pin, "S3", KEY_UP, KEY_UP, 0, 0 },
+};
+
+/* 当前模式与按键请求的目标模式（上电默认直收） */
+static uint8_t g_mode    = MODE_RAW_RX;
+static uint8_t g_modeReq = MODE_RAW_RX;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -74,6 +110,9 @@ void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 
 static uint8_t Role_Detect(void);
+static void    Key_Scan(void);
+static void    Mode_Update(void);
+static void    RawRx_Loop(void);
 
 /* USER CODE END PFP */
 
@@ -126,6 +165,11 @@ int main(void)
   printf("\r\n===== Wf4463 %s =====\r\n",
          (gRole == ROLE_TX) ? "TRANSMITTER" : "RECEIVER");
 
+  /* 按键自检：松开时读回应为 1（内部上拉），按下为 0 */
+  printf("KEY idle: S2(PB6)=%d S3(PB7)=%d  (1=release 0=pressed)\r\n",
+         (int)HAL_GPIO_ReadPin(S2_GPIO_Port, S2_Pin),
+         (int)HAL_GPIO_ReadPin(S3_GPIO_Port, S3_Pin));
+
   int8_t rc = wf4463_init();
   printf("wf4463_init rc=%d\r\n", rc);
   if (rc != WF4463_OK)
@@ -145,11 +189,13 @@ int main(void)
   }
 
 
-  if (gRole == ROLE_RX)
-  {
-      rc = wf4463_rx_start(APP_CHANNEL);
-      printf("rx_start rc=%d\r\n", rc);
-  }
+  /* ---- 上电默认进直收模式 ----
+   * S2 = 直收，S3 = 双向包，运行时随时可切（在 Mode_Update() 里执行）。
+   * 两种模式共用同一份射频配置，切换只重配 GPIO 和接收状态。 */
+  g_mode    = MODE_RAW_RX;
+  g_modeReq = MODE_RAW_RX;
+  rc = wf4463_rawrx_start(APP_CHANNEL);
+  printf("[MODE] RAW RX (GPIO1=RX_DATA) rc=%d   [S2=RAW  S3=PACKET]\r\n", rc);
 
   /* USER CODE END 2 */
 
@@ -159,10 +205,22 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    /* ---- 轮询按键：TX / RX 两种角色都会扫描 ---- */
+    Key_Scan();
+
+    /* 按键请求的模式变更在这里落地（安全点执行，不在中断里做重活） */
+    Mode_Update();
+
+    /* ---- 直收模式：芯片自己收，比特流从 GPIO1 出，MCU 只做保活 ---- */
+    if (g_mode == MODE_RAW_RX)
+    {
+        RawRx_Loop();
+        continue;
+    }
+
     if (gRole == ROLE_TX)
     {
         /* ================= 发送端 ================= */
-        static uint32_t nextTx = 0;
         uint32_t now = HAL_GetTick();
 
         if ((int32_t)(now - nextTx) >= 0)
@@ -351,6 +409,131 @@ int __io_putchar(int ch)
 {
     HAL_UART_Transmit(&huart1, (uint8_t *)&ch, 1, HAL_MAX_DELAY);
     return ch;
+}
+
+/* ============================================================
+ * 按键扫描（轮询方式，放在 while(1) 里反复调用）
+ *
+ * 规则：
+ *   1. 引脚读回低电平 = 按下，统一归一化成 0=按下 / 1=松开；
+ *   2. 采样电平一变就重新开始计时，电平稳定保持 KEY_DEBOUNCE_MS
+ *      才认为是真正的状态变化（消抖）；
+ *   3. 只在"确认变化"的那一刻打印一次，不会一直刷屏；
+ *   4. 全程不阻塞、不用 HAL_Delay，可直接放进任何主循环。
+ * ============================================================ */
+static void Key_Scan(void)
+{
+    uint32_t now = HAL_GetTick();
+
+    for (uint8_t i = 0; i < KEY_NUM; i++)
+    {
+        Key_t *k = &s_keys[i];
+
+        /* 硬件是低有效，这里转成 0=按下 / 1=松开，便于阅读 */
+        uint8_t raw = (HAL_GPIO_ReadPin(k->port, k->pin) == GPIO_PIN_RESET) ? KEY_DOWN : KEY_UP;
+
+        if (raw != k->raw)                    /* 电平刚变化：重新开始消抖计时 */
+        {
+            k->raw        = raw;
+            k->changeTick = now;
+            continue;
+        }
+
+        if (raw == k->stable)                 /* 与已确认的状态相同：没有事件 */
+        {
+            continue;
+        }
+
+        if ((uint32_t)(now - k->changeTick) < KEY_DEBOUNCE_MS)   /* 仍在抖动窗口内 */
+        {
+            continue;
+        }
+
+        /* 消抖通过，确认一次状态变化 */
+        k->stable = raw;
+
+        if (k->stable == KEY_DOWN)
+        {
+            k->downTick = now;
+            printf("[KEY] %s DOWN\r\n", k->name);
+
+            /* S2 -> 直收，S3 -> 双向包（真正的切换在 Mode_Update 里做） */
+            g_modeReq = (i == 0u) ? MODE_RAW_RX : MODE_PACKET;
+        }
+        else
+        {
+            printf("[KEY] %s UP   (held %lu ms)\r\n",
+                   k->name, (unsigned long)(now - k->downTick));
+        }
+    }
+}
+
+/* ============================================================
+ * 模式切换：把 g_modeReq 落到芯片上
+ *
+ * 两种模式共用同一份射频配置（radio_config.h），切换时只重配
+ * GPIO_PIN_CFG 和接收状态，不重写属性表 —— 所以不存在两套参数
+ * 互相残留的问题，来回切多少次结果都一样。
+ * ============================================================ */
+static void Mode_Update(void)
+{
+    wf4463_diag_t d;
+
+    if (g_modeReq == g_mode)
+    {
+        return;
+    }
+
+    g_mode = g_modeReq;
+
+    /* 每次切换模式都把双向包的发送序号和发送节拍清 0：
+       切回包模式后立刻从 #001 重新开始，不用等上一个 500ms 节拍 */
+    txSeq  = 0;
+    nextTx = 0;
+
+    if (g_mode == MODE_RAW_RX)
+    {
+        printf("[MODE] -> RAW RX (GPIO1=RX_DATA)\r\n");
+        wf4463_rawrx_start(APP_CHANNEL);
+    }
+    else
+    {
+        printf("[MODE] -> PACKET%s  (txSeq reset)\r\n", (gRole == ROLE_TX) ? " (TX)" : " (RX)");
+        wf4463_packet_resume(APP_CHANNEL);
+    }
+
+    /* 回读校验：XO_TUNE / PA 功率档 / 芯片状态，一眼看出配置有没有写坏 */
+    if (wf4463_diag(&d) == WF4463_OK)
+    {
+        printf("[MODE] chk xo=0x%02X pa=0x%02X state=%u\r\n",
+               d.xo_tune, d.pa_pwr, d.state);
+    }
+}
+
+/* ============================================================
+ * 直收模式的主循环
+ *
+ * 芯片自己把比特流送到 GPIO1，MCU 不参与解码，只做两件事：
+ *   1. 什么都不用干（数据在引脚上，用逻辑分析仪/示波器看）
+ *   2. 每秒确认一次芯片没掉出 RX，掉了就重新武装
+ * ============================================================ */
+static void RawRx_Loop(void)
+{
+    static uint32_t nextCheck = 0;
+    uint32_t now = HAL_GetTick();
+    uint8_t  st  = 0;
+
+    if ((int32_t)(now - nextCheck) < 0)
+    {
+        return;
+    }
+    nextCheck = now + 1000u;
+
+    if ((wf4463_device_state(&st) == WF4463_OK) && (st != 8u))
+    {
+        printf("[RAW] state=%u, re-arm\r\n", (unsigned)st);
+        wf4463_rawrx_start(APP_CHANNEL);
+    }
 }
 
 /* USER CODE END 4 */
