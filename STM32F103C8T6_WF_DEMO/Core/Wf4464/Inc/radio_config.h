@@ -21,7 +21,7 @@
 /*
 // Crys_freq(Hz): 30000000    Crys_tol(ppm): 20    IF_mode: 2    High_perf_Ch_Fil: 1    OSRtune: 0    Ch_Fil_Bw_AFC: 0    ANT_DIV: 0    PM_pattern: 0    
 // MOD_type: 2    Rsymb(sps): 10000    Fdev(Hz): 20000    RXBW(Hz): 150000    Manchester: 0    AFC_en: 0    Rsymb_error: 0.0    Chip-Version: 2    
-// RF Freq.(MHz): 433    API_TC: 29    fhst: 250000    inputBW: 0    BERT: 0    RAW_dout: 0    D_source: 0    Hi_pfm_div: 1    
+// RF Freq.(MHz): 433.92    API_TC: 29    fhst: 250000    inputBW: 0    BERT: 0    RAW_dout: 0    D_source: 0    Hi_pfm_div: 1    
 // 
 // # RX IF frequency is  -468750 Hz
 // # WB filter 4 (BW =  82.64 kHz);  NB-filter 4 (BW = 82.64 kHz)
@@ -79,7 +79,7 @@
 //   GLOBAL_XO_TUNE - Configure the internal capacitor frequency tuning bank for the crystal oscillator.
 //   GLOBAL_CLK_CFG - Clock configuration options.
 */
-#define RF_GLOBAL_XO_TUNE_2 0x11, 0x00, 0x02, 0x00, 0x52, 0x00
+#define RF_GLOBAL_XO_TUNE_2 0x11, 0x00, 0x02, 0x00, 0x66, 0x00
 
 /*
 // Set properties:           RF_GLOBAL_CONFIG_1
@@ -90,7 +90,7 @@
 // Descriptions:
 //   GLOBAL_CONFIG - Global configuration settings.
 */
-#define RF_GLOBAL_CONFIG_1 0x11, 0x00, 0x01, 0x03, 0x60
+#define RF_GLOBAL_CONFIG_1 0x11, 0x00, 0x01, 0x03, 0x20
 
 /*
 // Set properties:           RF_INT_CTL_ENABLE_4
@@ -169,7 +169,7 @@
 //   PKT_WHT_BIT_NUM - Selects which bit of the LFSR (used to generate the PN / data whitening sequence) is used as the output bit for data scrambling.
 //   PKT_CONFIG1 - General configuration bits for transmission or reception of a packet.
 */
-#define RF_PKT_CRC_CONFIG_7 0x11, 0x12, 0x07, 0x00, 0x84, 0x00, 0x30, 0xFF, 0xFF, 0x00, 0x02
+#define RF_PKT_CRC_CONFIG_7 0x11, 0x12, 0x07, 0x00, 0x04, 0x01, 0x08, 0xFF, 0xFF, 0x20, 0x02
 
 /*
 // Set properties:           RF_PKT_LEN_12
@@ -341,7 +341,7 @@
 //   MODEM_AFC_LIMITER_0 - Set the AFC limiter value.
 //   MODEM_AFC_MISC - Specifies miscellaneous AFC control bits.
 */
-#define RF_MODEM_AFC_GEAR_7 0x11, 0x20, 0x07, 0x2C, 0x04, 0x36, 0x80, 0x1D, 0x10, 0x04, 0x80
+#define RF_MODEM_AFC_GEAR_7 0x11, 0x20, 0x07, 0x2C, 0x04, 0x23, 0x80, 0x1D, 0x10, 0x04, 0x80
 
 /*
 // Set properties:           RF_MODEM_AGC_CONTROL_1
@@ -352,7 +352,7 @@
 // Descriptions:
 //   MODEM_AGC_CONTROL - Miscellaneous control bits for the Automatic Gain Control (AGC) function in the RX Chain.
 */
-#define RF_MODEM_AGC_CONTROL_1 0x11, 0x20, 0x01, 0x35, 0xE2
+#define RF_MODEM_AGC_CONTROL_1 0x11, 0x20, 0x01, 0x35, 0xE0
 
 /*
 // Set properties:           RF_MODEM_AGC_WINDOW_SIZE_9
@@ -390,7 +390,7 @@
 //   MODEM_ANT_DIV_CONTROL - Specifies controls for the Antenna Diversity algorithm.
 //   MODEM_RSSI_THRESH - Configures the RSSI threshold.
 */
-#define RF_MODEM_OOK_CNT1_9 0x11, 0x20, 0x09, 0x42, 0xA4, 0x02, 0xD6, 0x83, 0x01, 0x20, 0x01, 0x80, 0xFF
+#define RF_MODEM_OOK_CNT1_9 0x11, 0x20, 0x09, 0x42, 0xA4, 0x22, 0xD6, 0x83, 0x01, 0x55, 0x01, 0x00, 0xFF
 
 /*
 // Set properties:           RF_MODEM_RSSI_CONTROL_1
@@ -401,7 +401,7 @@
 // Descriptions:
 //   MODEM_RSSI_CONTROL - Control of the averaging modes and latching time for reporting RSSI value(s).
 */
-#define RF_MODEM_RSSI_CONTROL_1 0x11, 0x20, 0x01, 0x4C, 0x00
+#define RF_MODEM_RSSI_CONTROL_1 0x11, 0x20, 0x01, 0x4C, 0x01
 
 /*
 // Set properties:           RF_MODEM_RSSI_COMP_1
@@ -503,7 +503,7 @@
 //   PA_BIAS_CLKDUTY - Configuration of the PA Bias and duty cycle of the TX clock source.
 //   PA_TC - Configuration of PA ramping parameters.
 */
-#define RF_PA_MODE_4 0x11, 0x22, 0x04, 0x00, 0x08, 0x7F, 0x00, 0x3D
+#define RF_PA_MODE_4 0x11, 0x22, 0x04, 0x00, 0x08, 0x7F, 0x00, 0x1D
 
 /*
 // Set properties:           RF_SYNTH_PFDCP_CPFF_7
@@ -560,7 +560,7 @@
 //   FREQ_CONTROL_W_SIZE - Set window gating period (in number of crystal reference clock cycles) for counting VCO frequency during calibration.
 //   FREQ_CONTROL_VCOCNT_RX_ADJ - Adjust target count for VCO calibration in RX mode.
 */
-#define RF_FREQ_CONTROL_INTE_8 0x11, 0x40, 0x08, 0x00, 0x38, 0x0D, 0xDD, 0xDD, 0x44, 0x44, 0x20, 0xFE
+#define RF_FREQ_CONTROL_INTE_8 0x11, 0x40, 0x08, 0x00, 0x38, 0x0E, 0xD9, 0x16, 0x44, 0x44, 0x20, 0xFE
 
 
 // AUTOMATICALLY GENERATED CODE! 

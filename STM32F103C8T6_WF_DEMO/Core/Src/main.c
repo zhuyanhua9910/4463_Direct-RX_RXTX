@@ -288,16 +288,7 @@ int main(void)
             }
         }
 
-        /* 每 3 秒打印一次状态 */
-/*
-        if ((HAL_GetTick() - lastHb) >= 3000)
-        {
-            lastHb = HAL_GetTick();
-            uint8_t st = 0;
-            wf4463_device_state(&st);
-            printf("HB: state=%u rx=%u rssi=%d\r\n", st, rxCnt, wf4463_rssi_dbm());
-        }
-*/
+
     }
     }
   /* USER CODE END 3 */
