@@ -1,0 +1,26 @@
+# ---- 构建产物（CubeIDE / make 生成，不必入库） ----
+Debug/
+Release/
+STM32F103C8T6_WF_DEMO/Debug/
+STM32F103C8T6_WF_DEMO/Release/
+*.o
+*.d
+*.elf
+*.bin
+*.hex
+*.map
+*.list
+*.su
+
+# ---- 编辑器 / 系统 junk ----
+.DS_Store
+Thumbs.db
+desktop.ini
+.metadata/
+.settings/
+*.bak
+*~
+
+# ---- IDE 临时文件 ----
+*.swp
+*.tmp
