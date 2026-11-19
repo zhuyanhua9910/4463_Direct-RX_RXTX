@@ -1,12 +1,12 @@
 /*!
- * File:
+ * 文件：
  *  wf446x_api_lib.c
  *
- * Description:
- *  This file contains the Wf446x API library.
+ * 说明：
+ *  本文件中包含 Wf446x 芯片 API 库的实现。
  *
- * Silicon Laboratories Confidential
- * Copyright 2011 Silicon Laboratories, Inc.
+ * Silicon Laboratories 机密资料
+ * 版权所有 2011 Silicon Laboratories, Inc.
  */
 
 #include "compiler_defs.h"
@@ -28,18 +28,18 @@ const U8 Wf446xPatchCommands[][8] = { WF446X_PATCH_CMDS };
 
 
 /*!
- * This functions is used to reset the wf446x radio by applying shutdown and
- * releasing it.  After this function @ref wf446x_boot should be called.  You
- * can check if POR has completed by waiting 4 ms or by polling GPIO 0, 2, or 3.
- * When these GPIOs are high, it is safe to call @ref wf446x_boot.
+ * 本函数通过对芯片拉关断脚再释放的方式，让 wf446x 复位。
+ * 调用本函数之后应继续调用 @ref wf446x_boot（本库中对应 wf446x_power_up）。判断 POR（上电复位）是否完成，
+ * 可以等 4 ms，也可以轮询 GPIO0、GPIO2 或 GPIO3；当这些脚变高时，
+ * 就可以安全地调用 @ref wf446x_boot 了。
  */
 void wf446x_reset(void)
 {
     U8 loopCount;
 
-    /* Put radio in shutdown, wait then release */
+    /* 先把芯片拉入关断状态，等一下再释放 */
     radio_hal_AssertShutdown();
-    //! @todo this needs to be a better delay function.
+    //! @todo 这里应该换成更靠谱的延时函数。
     for (loopCount = 255; loopCount != 0; loopCount--);
     radio_hal_DeassertShutdown();
     for (loopCount = 255; loopCount != 0; loopCount--);
@@ -47,8 +47,8 @@ void wf446x_reset(void)
 }
 
 /*!
- * This function is used to initialize after power-up the radio chip.
- * Before this function @wf446x_reset should be called.
+ * 本函数用于芯片上电后的初始化。
+ * 调用本函数之前应先调用 @wf446x_reset。
  */
 void wf446x_power_up(U8 BOOT_OPTIONS, U8 XTAL_OPTIONS, U32 XO_FREQ)
 {
@@ -64,27 +64,27 @@ void wf446x_power_up(U8 BOOT_OPTIONS, U8 XTAL_OPTIONS, U32 XO_FREQ)
 }
 
 /*!
- * This function is used to load all properties and commands with a list of NULL terminated commands.
- * Before this function @wf446x_reset should be called.
+ * 本函数用一张以 0x00 结尾的命令表，把所有的属性和命令一次性写入芯片。
+ * 调用本函数之前应先调用 @wf446x_reset。
  */
 U8 wf446x_configuration_init(const U8* pSetPropCmd)
 {
   U8 col;
   U8 numOfBytes;
 
-  /* While cycle as far as the pointer points to a command */
+  /* 只要指针还指向一条命令，就一直循环 */
   while (*pSetPropCmd != 0x00)
   {
-    /* Commands structure in the array:
+    /* 数组中命令的格式：
      * --------------------------------
-     * LEN | <LEN length of data>
+     * LEN | <长度为 LEN 的数据>
      */
 
     numOfBytes = *pSetPropCmd++;
 
     if (numOfBytes > 16u)
     {
-      /* Number of command bytes exceeds maximal allowable length */
+      /* 命令字节数超过允许的最大长度 */
       return WF446X_COMMAND_ERROR;
     }
 
@@ -96,13 +96,13 @@ U8 wf446x_configuration_init(const U8* pSetPropCmd)
 
     if (radio_comm_SendCmdGetResp(numOfBytes, Pro2Cmd, 0, 0) != 0xFF)
     {
-      /* Timeout occured */
+      /* 发生超时 */
       return WF446X_CTS_TIMEOUT;
     }
 
     if (radio_hal_NirqLevel() == 0)
     {
-      /* Get and clear all interrupts.  An error has occured... */
+      /* 读取并清除所有中断。说明出错了…… */
       wf446x_get_int_status(0, 0, 0);
       if (Wf446xCmd.GET_INT_STATUS.CHIP_PEND & WF446X_CMD_GET_CHIP_STATUS_REP_CMD_ERROR_PEND_MASK)
       {
@@ -115,13 +115,13 @@ U8 wf446x_configuration_init(const U8* pSetPropCmd)
 }
 
 /*!
- * This function is used to apply a firmware patch to the wf446x radio.  This
- * patch is stored in code using the wf446x_patch.h file.
+ * 本函数用于给 wf446x 打固件补丁（patch）。补丁数据以代码形式
+ * 保存在 wf446x_patch.h 文件中。
  *
- * @return  WF446X_CTS_TIMEOUT If a CTS error occurs.
- *          WF446X_PATCH_FAIL If the patch fails.
- *          WF446X_SUCCESS If the patch is successful.
- *          WF446X_NO_PATCH If there is no patch in the Flash to load.
+ * @return  WF446X_CTS_TIMEOUT 发生 CTS 超时。
+ *          WF446X_PATCH_FAIL  补丁加载失败。
+ *          WF446X_SUCCESS     补丁加载成功。
+ *          WF446X_NO_PATCH    Flash 中没有可加载的补丁。
  */
 U8 wf446x_apply_patch(void)
 {
@@ -129,7 +129,7 @@ U8 wf446x_apply_patch(void)
     SEGMENT_VARIABLE(line, U16, SEG_DATA);
     SEGMENT_VARIABLE(row,  U8, SEG_DATA);
 
-    /* Check if patch is needed. */
+    /* 先判断是否真的需要打补丁 */
     wf446x_part_info();
 
     if ((Wf446xCmd.PART_INFO.ROMID == WF446X_PATCH_ROMID) && (Wf446xCmd.PART_INFO.ID.U8[MSB] < WF446X_PATCH_ID))
@@ -142,12 +142,12 @@ U8 wf446x_apply_patch(void)
         }
         if (radio_comm_SendCmdGetResp(8, Pro2Cmd, 0, 0) != 0xFF)
         {
-          // Timeout occured
+          // 发生超时
           return WF446X_CTS_TIMEOUT;
         }
         if (radio_hal_NirqLevel() == 0)
         {
-          /* Get and clear all interrupts.  An error has occured... */
+          /* 读取并清除所有中断。说明出错了…… */
           wf446x_get_int_status(0, 0, 0);
           return WF446X_PATCH_FAIL;
         }
@@ -160,8 +160,7 @@ U8 wf446x_apply_patch(void)
 #endif
 }
 
-/*! This function sends the PART_INFO command to the radio and receives the answer
- *  into @Wf446xCmd union.
+/*! 本函数向芯片发送 PART_INFO 命令，并把应答读入 @Wf446xCmd 联合体。
  */
 void wf446x_part_info(void)
 {
@@ -182,11 +181,11 @@ void wf446x_part_info(void)
     Wf446xCmd.PART_INFO.ROMID           = Pro2Cmd[7];
 }
 
-/*! Sends START_TX command to the radio.
+/*! 向芯片发送 START_TX 命令。
  *
- * @param CHANNEL   Channel number.
- * @param CONDITION Start TX condition.
- * @param TX_LEN    Payload length (exclude the PH generated CRC).
+ * @param CHANNEL   信道号。
+ * @param CONDITION 发送启动条件。
+ * @param TX_LEN    载荷长度（不含包处理器自动生成的 CRC）。
  */
 void wf446x_start_tx(U8 CHANNEL, U8 CONDITION, U16 TX_LEN)
 {
@@ -201,14 +200,14 @@ void wf446x_start_tx(U8 CHANNEL, U8 CONDITION, U16 TX_LEN)
 }
 
 /*!
- * Sends START_RX command to the radio.
+ * 向芯片发送 START_RX 命令。
  *
- * @param CHANNEL     Channel number.
- * @param CONDITION   Start RX condition.
- * @param RX_LEN      Payload length (exclude the PH generated CRC).
- * @param NEXT_STATE1 Next state when Preamble Timeout occurs.
- * @param NEXT_STATE2 Next state when a valid packet received.
- * @param NEXT_STATE3 Next state when invalid packet received (e.g. CRC error).
+ * @param CHANNEL     信道号。
+ * @param CONDITION   接收启动条件。
+ * @param RX_LEN      载荷长度（不含包处理器自动生成的 CRC）。
+ * @param NEXT_STATE1 前导码超时后进入的状态。
+ * @param NEXT_STATE2 收到有效包后进入的状态。
+ * @param NEXT_STATE3 收到无效包（如 CRC 错）后进入的状态。
  */
 void wf446x_start_rx(U8 CHANNEL, U8 CONDITION, U16 RX_LEN, U8 NEXT_STATE1, U8 NEXT_STATE2, U8 NEXT_STATE3)
 {
@@ -225,11 +224,11 @@ void wf446x_start_rx(U8 CHANNEL, U8 CONDITION, U16 RX_LEN, U8 NEXT_STATE1, U8 NE
 }
 
 /*!
- * Get the Interrupt status/pending flags form the radio and clear flags if requested.
+ * 从芯片读取中断状态/挂起标志，并按需要清除这些标志。
  *
- * @param PH_CLR_PEND     Packet Handler pending flags clear.
- * @param MODEM_CLR_PEND  Modem Status pending flags clear.
- * @param CHIP_CLR_PEND   Chip State pending flags clear.
+ * @param PH_CLR_PEND     包处理器（Packet Handler）挂起标志清除位。
+ * @param MODEM_CLR_PEND  调制解调器（Modem）状态挂起标志清除位。
+ * @param CHIP_CLR_PEND   芯片状态挂起标志清除位。
  */
 void wf446x_get_int_status(U8 PH_CLR_PEND, U8 MODEM_CLR_PEND, U8 CHIP_CLR_PEND)
 {
@@ -254,16 +253,16 @@ void wf446x_get_int_status(U8 PH_CLR_PEND, U8 MODEM_CLR_PEND, U8 CHIP_CLR_PEND)
 }
 
 /*!
- * Send GPIO pin config command to the radio and reads the answer into
- * @Wf446xCmd union.
+ * 向芯片发送 GPIO 引脚配置命令，并把应答读入
+ * @Wf446xCmd 联合体。
  *
- * @param GPIO0       GPIO0 configuration.
- * @param GPIO1       GPIO1 configuration.
- * @param GPIO2       GPIO2 configuration.
- * @param GPIO3       GPIO3 configuration.
- * @param NIRQ        NIRQ configuration.
- * @param SDO         SDO configuration.
- * @param GEN_CONFIG  General pin configuration.
+ * @param GPIO0       GPIO0 配置。
+ * @param GPIO1       GPIO1 配置。
+ * @param GPIO2       GPIO2 配置。
+ * @param GPIO3       GPIO3 配置。
+ * @param NIRQ        NIRQ 配置。
+ * @param SDO         SDO 配置。
+ * @param GEN_CONFIG  通用引脚配置。
  */
 void wf446x_gpio_pin_cfg(U8 GPIO0, U8 GPIO1, U8 GPIO2, U8 GPIO3, U8 NIRQ, U8 SDO, U8 GEN_CONFIG)
 {
@@ -291,15 +290,15 @@ void wf446x_gpio_pin_cfg(U8 GPIO0, U8 GPIO1, U8 GPIO2, U8 GPIO3, U8 NIRQ, U8 SDO
 }
 
 /*!
- * Send SET_PROPERTY command to the radio.
+ * 向芯片发送 SET_PROPERTY 命令。
  *
- * @param GROUP       Property group.
- * @param NUM_PROPS   Number of property to be set. The properties must be in ascending order
- *                    in their sub-property aspect. Max. 12 properties can be set in one command.
- * @param START_PROP  Start sub-property address.
+ * @param GROUP       属性分组。
+ * @param NUM_PROPS   要设置的属性个数。这些属性按子属性地址必须递增排列。
+ *                    一条命令最多可以设置 12 个属性。
+ * @param START_PROP  起始子属性地址。
  */
 #ifdef __C51__
-#pragma maxargs (13)  /* allow 13 bytes for parameters */
+#pragma maxargs (13)  /* 允许 13 个字节的参数 */
 #endif
 void wf446x_set_property( U8 GROUP, U8 NUM_PROPS, U8 START_PROP, ... )
 {
@@ -325,9 +324,9 @@ void wf446x_set_property( U8 GROUP, U8 NUM_PROPS, U8 START_PROP, ... )
 }
 
 /*!
- * Issue a change state command to the radio.
+ * 向芯片发送切换状态（CHANGE_STATE）命令。
  *
- * @param NEXT_STATE1 Next state.
+ * @param NEXT_STATE1 目标状态。
  */
 void wf446x_change_state(U8 NEXT_STATE1)
 {
@@ -339,9 +338,9 @@ void wf446x_change_state(U8 NEXT_STATE1)
 
 
 #ifdef RADIO_DRIVER_EXTENDED_SUPPORT
-/* Extended driver support functions */
+/* 扩展版驱动支持函数 */
 /*!
- * Sends NOP command to the radio. Can be used to maintain SPI communication.
+ * 向芯片发送 NOP 命令，可用来维持 SPI 通信（喂狗/保活）。
  */
 void wf446x_nop(void)
 {
@@ -351,10 +350,10 @@ void wf446x_nop(void)
 }
 
 /*!
- * Send the FIFO_INFO command to the radio. Optionally resets the TX/RX FIFO. Reads the radio response back
- * into @Wf446xCmd.
+ * 向芯片发送 FIFO_INFO 命令，可选择同时复位 TX/RX FIFO。
+ * 芯片的应答会被读入 @Wf446xCmd。
  *
- * @param FIFO  RX/TX FIFO reset flags.
+ * @param FIFO  RX/TX FIFO 复位标志。
  */
 void wf446x_fifo_info(U8 FIFO)
 {
@@ -371,10 +370,10 @@ void wf446x_fifo_info(U8 FIFO)
 }
 
 /*!
- * The function can be used to load data into TX FIFO.
+ * 本函数可用于把数据写入 TX FIFO。
  *
- * @param numBytes  Data length to be load.
- * @param pTxData   Pointer to the data (U8*).
+ * @param numBytes  要写入的数据长度。
+ * @param pTxData   指向数据缓冲区的指针（U8*）。
  */
 void wf446x_write_tx_fifo(U8 numBytes, U8* pTxData)
 {
@@ -382,10 +381,10 @@ void wf446x_write_tx_fifo(U8 numBytes, U8* pTxData)
 }
 
 /*!
- * Reads the RX FIFO content from the radio.
+ * 从芯片的 RX FIFO 中读出数据。
  *
- * @param numBytes  Data length to be read.
- * @param pRxData   Pointer to the buffer location.
+ * @param numBytes  要读取的数据长度。
+ * @param pRxData   指向接收缓冲区的指针。
  */
 void wf446x_read_rx_fifo(U8 numBytes, U8* pRxData)
 {
@@ -393,11 +392,11 @@ void wf446x_read_rx_fifo(U8 numBytes, U8* pRxData)
 }
 
 /*!
- * Get property values from the radio. Reads them into Wf446xCmd union.
+ * 从芯片读取属性值，读回的数据放入 Wf446xCmd 联合体。
  *
- * @param GROUP       Property group number.
- * @param NUM_PROPS   Number of properties to be read.
- * @param START_PROP  Starting sub-property number.
+ * @param GROUP       属性分组号。
+ * @param NUM_PROPS   要读取的属性个数。
+ * @param START_PROP  起始子属性编号。
  */
 void wf446x_get_property(U8 GROUP, U8 NUM_PROPS, U8 START_PROP)
 {
@@ -431,10 +430,10 @@ void wf446x_get_property(U8 GROUP, U8 NUM_PROPS, U8 START_PROP)
 
 
 #ifdef RADIO_DRIVER_FULL_SUPPORT
-/* Full driver support functions */
+/* 完整版驱动支持函数 */
 
 /*!
- * Sends the FUNC_INFO command to the radio, then reads the resonse into @Wf446xCmd union.
+ * 向芯片发送 FUNC_INFO 命令，并把应答读入 @Wf446xCmd 联合体。
  */
 void wf446x_func_info(void)
 {
@@ -454,9 +453,9 @@ void wf446x_func_info(void)
 }
 
 /*!
- * Reads the Fast Response Registers starting with A register into @Wf446xCmd union.
+ * 从 A 寄存器开始读快速响应寄存器（FRR），结果放入 @Wf446xCmd 联合体。
  *
- * @param respByteCount Number of Fast Response Registers to be read.
+ * @param respByteCount 要读取的快速响应寄存器个数。
  */
 void wf446x_frr_a_read(U8 respByteCount)
 {
@@ -472,9 +471,9 @@ void wf446x_frr_a_read(U8 respByteCount)
 }
 
 /*!
- * Reads the Fast Response Registers starting with B register into @Wf446xCmd union.
+ * 从 B 寄存器开始读快速响应寄存器（FRR），结果放入 @Wf446xCmd 联合体。
  *
- * @param respByteCount Number of Fast Response Registers to be read.
+ * @param respByteCount 要读取的快速响应寄存器个数。
  */
 void wf446x_frr_b_read(U8 respByteCount)
 {
@@ -490,9 +489,9 @@ void wf446x_frr_b_read(U8 respByteCount)
 }
 
 /*!
- * Reads the Fast Response Registers starting with C register into @Wf446xCmd union.
+ * 从 C 寄存器开始读快速响应寄存器（FRR），结果放入 @Wf446xCmd 联合体。
  *
- * @param respByteCount Number of Fast Response Registers to be read.
+ * @param respByteCount 要读取的快速响应寄存器个数。
  */
 void wf446x_frr_c_read(U8 respByteCount)
 {
@@ -508,9 +507,9 @@ void wf446x_frr_c_read(U8 respByteCount)
 }
 
 /*!
- * Reads the Fast Response Registers starting with D register into @Wf446xCmd union.
+ * 从 D 寄存器开始读快速响应寄存器（FRR），结果放入 @Wf446xCmd 联合体。
  *
- * @param respByteCount Number of Fast Response Registers to be read.
+ * @param respByteCount 要读取的快速响应寄存器个数。
  */
 void wf446x_frr_d_read(U8 respByteCount)
 {
@@ -526,9 +525,9 @@ void wf446x_frr_d_read(U8 respByteCount)
 }
 
 /*!
- * Reads the ADC values from the radio into @Wf446xCmd union.
+ * 从芯片读取 ADC 数值，结果放入 @Wf446xCmd 联合体。
  *
- * @param ADC_EN  ADC enable parameter.
+ * @param ADC_EN  ADC 使能参数。
  */
 void wf446x_get_adc_reading(U8 ADC_EN)
 {
@@ -551,12 +550,11 @@ void wf446x_get_adc_reading(U8 ADC_EN)
 }
 
 /*!
- * Receives information from the radio of the current packet. Optionally can be used to modify
- * the Packet Handler properties during packet reception.
+ * 从芯片获取当前包的信息，也可用来在收包过程中修改包处理器属性。
  *
- * @param FIELD_NUMBER_MASK Packet Field number mask value.
- * @param LEN               Length value.
- * @param DIFF_LEN          Difference length.
+ * @param FIELD_NUMBER_MASK 包字段编号掩码。
+ * @param LEN               长度值。
+ * @param DIFF_LEN          差值长度。
  */
 void wf446x_get_packet_info(U8 FIELD_NUMBER_MASK, U16 LEN, S16 DIFF_LEN )
 {
@@ -564,8 +562,8 @@ void wf446x_get_packet_info(U8 FIELD_NUMBER_MASK, U16 LEN, S16 DIFF_LEN )
     Pro2Cmd[1] = FIELD_NUMBER_MASK;
     Pro2Cmd[2] = (U8)(LEN >> 8);
     Pro2Cmd[3] = (U8)(LEN);
-    // the different of the byte, although it is signed, but to command handler
-    // it can treat it as unsigned
+    // 这个差值是"字节差"，虽然带符号，但命令处理端
+    // 完全可以按无符号来对待
     Pro2Cmd[4] = (U8)((U16)DIFF_LEN >> 8);
     Pro2Cmd[5] = (U8)(DIFF_LEN);
 
@@ -579,9 +577,9 @@ void wf446x_get_packet_info(U8 FIELD_NUMBER_MASK, U16 LEN, S16 DIFF_LEN )
 }
 
 /*!
- * Gets the Packet Handler status flags. Optionally clears them.
+ * 获取包处理器（Packet Handler）的状态标志，可按需要清除。
  *
- * @param PH_CLR_PEND Flags to clear.
+ * @param PH_CLR_PEND 要清除的标志位。
  */
 void wf446x_get_ph_status(U8 PH_CLR_PEND)
 {
@@ -598,9 +596,9 @@ void wf446x_get_ph_status(U8 PH_CLR_PEND)
 }
 
 /*!
- * Gets the Modem status flags. Optionally clears them.
+ * 获取调制解调器（Modem）状态标志，可按需要清除。
  *
- * @param MODEM_CLR_PEND Flags to clear.
+ * @param MODEM_CLR_PEND 要清除的标志位。
  */
 void wf446x_get_modem_status( U8 MODEM_CLR_PEND )
 {
@@ -623,9 +621,9 @@ void wf446x_get_modem_status( U8 MODEM_CLR_PEND )
 }
 
 /*!
- * Gets the Chip status flags. Optionally clears them.
+ * 获取芯片状态标志，可按需要清除。
  *
- * @param CHIP_CLR_PEND Flags to clear.
+ * @param CHIP_CLR_PEND 要清除的标志位。
  */
 void wf446x_get_chip_status( U8 CHIP_CLR_PEND )
 {
@@ -643,7 +641,8 @@ void wf446x_get_chip_status( U8 CHIP_CLR_PEND )
 }
 
 /*!
- * Performs image rejection calibration. Completion can be monitored by polling CTS or waiting for CHIP_READY interrupt source.
+ * 执行镜像抑制校准（Image Rejection Calibration）。可以通过轮询 CTS，
+ * 或者等待 CHIP_READY 中断源来判断校准是否完成。
  *
  * @param SEARCHING_STEP_SIZE
  * @param SEARCHING_RSSI_AVG
@@ -669,17 +668,16 @@ void wf446x_ircal(U8 SEARCHING_STEP_SIZE, U8 SEARCHING_RSSI_AVG, U8 RX_CHAIN_SET
 }
 
 /*!
- * Sets the chip up for specified protocol.
+ * 把芯片配置成指定的协议格式。
  *
- * @param PROTOCOL    0 = Packet format is generic, no dynamic reprogramming of packet handler properties.
-                      1 = Packet format is IEEE802.15.4g compliant. The following properties are overriden:
-                      PKT_CRC_CONFIG, CRC_ENDIAN/BIT_ORDER in PKT_CONFG1 for TX and RX, PKT_FIELD_1_CRC_CONFIG for RX.
-                      Other applicable properties in the packet handler group still need to be programmed. Field 1 should
-                      have the length of 16 bits to contain the PHR with PKT_LEN_FIELD_SOURCE set to 1 for RX. PSDU field
-                      shall use Field 2 with variable length. Field 2 length should be set to the maximum allowed including
-                      the anticipated FCS length. It is anticipated that the FCS will be calculated by the host and transmitted
-                      over the air. Wf4440 will receive PHR and put FCS in the FIFO for the host to retrieve and check.
-                      Therefore, CRC shouldn't be enabled on Wf4440.
+ * @param PROTOCOL    0 = 通用包格式，不会动态重新配置包处理器的属性。
+                      1 = IEEE802.15.4g 兼容包格式。以下属性会被强制覆盖：
+                      PKT_CRC_CONFIG，TX/RX 在 PKT_CONFG1 中的 CRC_ENDIAN/BIT_ORDER，RX 的 PKT_FIELD_1_CRC_CONFIG。
+                      包处理器分组中其它相关属性仍然需要自行写入。Field 1 的长度应设为 16 位，
+                      以便容纳 PHR；RX 时需把 PKT_LEN_FIELD_SOURCE 置 1。PSDU 应使用变长的 Field 2，
+                      Field 2 的长度要设为允许的最大值（包含预期的 FCS 长度）。这里假定 FCS 由主机计算
+                      并随数据一起在空中传输：Wf4440 只接收 PHR，并把 FCS 放进 FIFO 供主机读取和校验，
+                      因此 Wf4440 上不应启用 CRC。
  */
 void wf446x_protocol_cfg(U8 PROTOCOL)
 {
@@ -690,7 +688,7 @@ void wf446x_protocol_cfg(U8 PROTOCOL)
 }
 
 /*!
- * Requests the current state of the device and lists pending TX and RX requests
+ * 查询芯片当前状态，同时列出挂起中的 TX / RX 请求
  */
 void wf446x_request_device_state(void)
 {
@@ -706,14 +704,14 @@ void wf446x_request_device_state(void)
 }
 
 /*!
- * While in RX state this will hop to the frequency specified by the parameters and start searching for a preamble.
+ * 在 RX 状态下，按参数指定的频率跳频，并重新开始搜索前导码。
  *
- * @param INTE      New INTE register value.
- * @param FRAC2     New FRAC2 register value.
- * @param FRAC1     New FRAC1 register value.
- * @param FRAC0     New FRAC0 register value.
- * @param VCO_CNT1  New VCO_CNT1 register value.
- * @param VCO_CNT0  New VCO_CNT0 register value.
+ * @param INTE      新的 INTE 寄存器值。
+ * @param FRAC2     新的 FRAC2 寄存器值。
+ * @param FRAC1     新的 FRAC1 寄存器值。
+ * @param FRAC0     新的 FRAC0 寄存器值。
+ * @param VCO_CNT1  新的 VCO_CNT1 寄存器值。
+ * @param VCO_CNT0  新的 VCO_CNT0 寄存器值。
  */
 void wf446x_rx_hop(U8 INTE, U8 FRAC2, U8 FRAC1, U8 FRAC0, U8 VCO_CNT1, U8 VCO_CNT0)
 {
@@ -729,9 +727,9 @@ void wf446x_rx_hop(U8 INTE, U8 FRAC2, U8 FRAC1, U8 FRAC0, U8 VCO_CNT1, U8 VCO_CN
 }
 
 /*!
- * This command is used to allow override of the AGC.
+ * 本命令用于覆盖 AGC（自动增益控制）的设置。
  *
- * @param AGC_OVERRIDE  AGC override parameters.
+ * @param AGC_OVERRIDE  AGC 覆盖参数。
  */
 void wf446x_agc_override(U8 AGC_OVERRIDE)
 {

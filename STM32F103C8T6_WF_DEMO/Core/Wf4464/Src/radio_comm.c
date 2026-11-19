@@ -1,61 +1,42 @@
 /*!
- * File:
- *  radio_comm.h
+ * 文件：
+ *  radio_comm.c
  *
- * Description:
- *  This file contains the RADIO communication layer.
+ * 说明：
+ *  本文件中包含无线芯片（RADIO）通信层的实现。
  *
- * Silicon Laboratories Confidential
- * Copyright 2012 Silicon Laboratories, Inc.
+ * Silicon Laboratories 机密资料
+ * 版权所有 2012 Silicon Laboratories, Inc.
  */
 
-                /* ======================================= *
-                 *              I N C L U D E              *
-                 * ======================================= */
 
 #include "compiler_defs.h"
 #include "wf446x_defs.h"
 #include "radio_comm.h"
 #include "radio_hal.h"
 
-                /* ======================================= *
-                 *          D E F I N I T I O N S          *
-                 * ======================================= */
-
-                /* ======================================= *
-                 *     G L O B A L   V A R I A B L E S     *
-                 * ======================================= */
 
 BIT ctsWentHigh = 0;
 
 
-                /* ======================================= *
-                 *      L O C A L   F U N C T I O N S      *
-                 * ======================================= */
-
-                /* ======================================= *
-                 *     P U B L I C   F U N C T I O N S     *
-                 * ======================================= */
-
-
 /*!
- * Gets a command response from the radio chip
+ * 从无线芯片读取命令的应答数据
  *
- * @param byteCount     Number of bytes to get from the radio chip
- * @param pData         Pointer to where to put the data
+ * @param byteCount     要从芯片读取的字节数
+ * @param pData         存放读回数据的缓冲区指针
  *
- * @return CTS value
+ * @return CTS 的值
  */
 U8 radio_comm_GetResp(U8 byteCount, U8* pData)
 {
   U8 ctsVal = 0;
   U16 errCnt = RADIO_CTS_TIMEOUT;
   //U16 u16Loop = 0;
-  while (errCnt != 0)      //wait until radio IC is ready with the data
+  while (errCnt != 0)      //循环等待，直到芯片准备好返回数据
   {
     radio_hal_ClearNsel();
     //for(u16Loop = 0; u16Loop < 100; u16Loop ++);
-    radio_hal_SpiWriteByte(0x44);    //read CMD buffer
+    radio_hal_SpiWriteByte(0x44);    //读命令缓冲区
     ctsVal = radio_hal_SpiReadByte();
     if (ctsVal == 0xFF)
     {
@@ -72,10 +53,6 @@ U8 radio_comm_GetResp(U8 byteCount, U8* pData)
 
   if (errCnt == 0)
   {
-    /* 原版这里是 while(1)：CTS 超时后程序原地死锁，串口一个字都不打。
-       STM32 上必须让失败可见：把 ctsWentHigh 置 1 打破上层
-       radio_comm_SendCmd / ReadData / WriteData 里的 while(!ctsWentHigh)，
-       再返回 0x00 告诉上层"CTS 没等到"（正常值是 0xFF）。 */
     #ifdef RADIO_COMM_ERROR_CALLBACK
       RADIO_COMM_ERROR_CALLBACK();
     #endif
@@ -92,15 +69,15 @@ U8 radio_comm_GetResp(U8 byteCount, U8* pData)
 }
 
 /*!
- * Sends a command to the radio chip
+ * 向无线芯片发送一条命令
  *
- * @param byteCount     Number of bytes in the command to send to the radio device
- * @param pData         Pointer to the command to send.
+ * @param byteCount     要发送的命令字节数
+ * @param pData         指向要发送的命令数据的指针
  */
 void radio_comm_SendCmd(U8 byteCount, U8* pData)
 {
-    /* There was a bug in A1 hardware that will not handle 1 byte commands. 
-       It was supposedly fixed in B0 but the fix didn't make it at the last minute, so here we go again */
+    /* A1 版本芯片有个 bug：处理不了单字节命令。
+       据说 B0 已经修好，但最后一刻没能进版本，所以这里还得再补一次 */
     if (byteCount == 1)
         byteCount++;
 
@@ -115,12 +92,12 @@ void radio_comm_SendCmd(U8 byteCount, U8* pData)
 }
 
 /*!
- * Gets a command response from the radio chip
+ * 从无线芯片读取命令的应答数据
  *
- * @param cmd           Command ID
- * @param pollCts       Set to poll CTS
- * @param byteCount     Number of bytes to get from the radio chip.
- * @param pData         Pointer to where to put the data.
+ * @param cmd           命令 ID
+ * @param pollCts       是否先轮询 CTS
+ * @param byteCount     要从芯片读取的字节数
+ * @param pData         存放读回数据的缓冲区指针
  */
 void radio_comm_ReadData(U8 cmd, BIT pollCts, U8 byteCount, U8* pData)
 {
@@ -140,12 +117,12 @@ void radio_comm_ReadData(U8 cmd, BIT pollCts, U8 byteCount, U8* pData)
 
 
 /*!
- * Gets a command response from the radio chip
+ * 向无线芯片写入数据（命令 + 数据一起发）
  *
- * @param cmd           Command ID
- * @param pollCts       Set to poll CTS
- * @param byteCount     Number of bytes to get from the radio chip
- * @param pData         Pointer to where to put the data
+ * @param cmd           命令 ID
+ * @param pollCts       是否先轮询 CTS
+ * @param byteCount     要写入的字节数
+ * @param pData         指向要写入的数据的指针
  */
 void radio_comm_WriteData(U8 cmd, BIT pollCts, U8 byteCount, U8* pData)
 {
@@ -164,9 +141,9 @@ void radio_comm_WriteData(U8 cmd, BIT pollCts, U8 byteCount, U8* pData)
 }
 
 /*!
- * Waits for CTS to be high
+ * 等待 CTS 变为高电平（芯片就绪）
  *
- * @return CTS value
+ * @return CTS 的值
  */
 U8 radio_comm_PollCTS(void)
 {
@@ -174,7 +151,7 @@ U8 radio_comm_PollCTS(void)
 }
 
 /**
- * Clears the CTS state variable.
+ * 清除 CTS 状态标志变量。
  */
 void radio_comm_ClearCTS()
 {
@@ -183,14 +160,14 @@ void radio_comm_ClearCTS()
 
 
 /*!
- * Sends a command to the radio chip and gets a response
+ * 发送一条命令并读取应答
  *
- * @param cmdByteCount  Number of bytes in the command to send to the radio device
- * @param pCmdData      Pointer to the command data
- * @param respByteCount Number of bytes in the response to fetch
- * @param pRespData     Pointer to where to put the response data
+ * @param cmdByteCount  要发送的命令字节数
+ * @param pCmdData      指向命令数据的指针
+ * @param respByteCount 要读取的应答字节数
+ * @param pRespData     存放应答数据的缓冲区指针
  *
- * @return CTS value
+ * @return CTS 的值
  */
 U8 radio_comm_SendCmdGetResp(U8 cmdByteCount, U8* pCmdData, U8 respByteCount, U8* pRespData)
 {

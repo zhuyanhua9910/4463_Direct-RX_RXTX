@@ -1,17 +1,3 @@
-/**
- * @file    compiler_defs.h
- * @brief   STM32 (ARM GCC) 版本
- *
- * 原本自带一份 compiler_defs.h，里面 #include <stm8s.h>、把 U16 定义成
- * `unsigned int`。在 ARM 上 `unsigned int` 是 32 位，直接照用会让所有 16 位
- * 变量变宽（尤其 start_tx 的 TX_LEN、各种长度计算），必须换成这份。
- *
- * 用法：把本目录放在 include path 里，且**排在** drivers/official-wf446x-api-lib/ 之前，
- *      或者干脆删掉目录里的 compiler_defs.h。
- *
- * 建议编译选项：-std=c99   （本文件用 <stdint.h>，不能用 C90）
- */
-
 #ifndef COMPILER_DEFS_H
 #define COMPILER_DEFS_H
 
@@ -52,7 +38,7 @@ typedef union UU32
     S8   S8[4];
 } UU32;
 
-/* 官方库用这两个下标访问 UU32 的字节 */
+
 #ifndef LSB
 #define LSB 0
 #endif

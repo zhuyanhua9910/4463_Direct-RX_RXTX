@@ -1,12 +1,12 @@
 /*!
- * File:
+ * 文件：
  *  wf446x_api_lib.h
  *
- * Description:
- *  This file contains the Wf446x API library.
+ * 说明：
+ *  本文件中包含 Wf446x 芯片的 API 库函数声明。
  *
- * Silicon Laboratories Confidential
- * Copyright 2011 Silicon Laboratories, Inc.
+ * Silicon Laboratories 机密资料
+ * 版权所有 2011 Silicon Laboratories, Inc.
  */
 
 #ifndef _WF446X_API_LIB_H_
@@ -27,7 +27,7 @@ enum
     WF446X_COMMAND_ERROR
 };
 
-/* Minimal driver support functions */
+/* 精简版驱动支持函数（最小功能集） */
 void wf446x_reset(void);
 void wf446x_power_up(U8 BOOT_OPTIONS, U8 XTAL_OPTIONS, U32 XO_FREQ);
 
@@ -45,7 +45,7 @@ void wf446x_set_property( U8 GROUP, U8 NUM_PROPS, U8 START_PROP, ... );
 void wf446x_change_state(U8 NEXT_STATE1);
 
 #ifdef RADIO_DRIVER_EXTENDED_SUPPORT
-  /* Extended driver support functions */
+  /* 扩展版驱动支持函数 */
   void wf446x_nop(void);
 
   void wf446x_fifo_info(U8 FIFO);
@@ -55,7 +55,7 @@ void wf446x_change_state(U8 NEXT_STATE1);
   void wf446x_get_property(U8 GROUP, U8 NUM_PROPS, U8 START_PROP);
   void reConfigPktHandler(void);
   #ifdef RADIO_DRIVER_FULL_SUPPORT
-    /* Full driver support functions */
+    /* 完整版驱动支持函数 */
     void wf446x_func_info(void);
 
     void wf446x_frr_a_read(U8 respByteCount);

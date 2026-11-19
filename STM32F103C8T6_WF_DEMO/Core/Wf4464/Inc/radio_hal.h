@@ -1,32 +1,17 @@
 /*!
- * File:
+ * 文件：
  *  radio_hal.h
  *
- * Description:
- *  This file contains RADIO HAL.
+ * 说明：
+ *  本文件中包含无线芯片的硬件抽象层（HAL）：SPI 收发、SDN/CSN/NIRQ 引脚操作。
  *
- * Silicon Laboratories Confidential
- * Copyright 2011 Silicon Laboratories, Inc.
+ * Silicon Laboratories 机密资料
+ * 版权所有 2011 Silicon Laboratories, Inc.
  */
 
 #ifndef _RADIO_HAL_H_
 #define _RADIO_HAL_H_
 
-                /* ======================================= *
-                 *              I N C L U D E              *
-                 * ======================================= */
-
-                /* ======================================= *
-                 *          D E F I N I T I O N S          *
-                 * ======================================= */
-
-                /* ======================================= *
-                 *     G L O B A L   V A R I A B L E S     *
-                 * ======================================= */
-
-                /* ======================================= *
-                 *  F U N C T I O N   P R O T O T Y P E S  *
-                 * ======================================= */
 
 void radio_hal_AssertShutdown(void);
 void radio_hal_DeassertShutdown(void);
