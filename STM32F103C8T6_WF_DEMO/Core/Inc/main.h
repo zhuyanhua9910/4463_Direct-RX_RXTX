@@ -79,6 +79,14 @@ void Error_Handler(void);
 #define S3_Pin            GPIO_PIN_7
 #define S3_GPIO_Port      GPIOB
 
+/* ---- LED1 ---------------------------------------------------------------
+ * 硬件：PA15，低电平点亮（串限流电阻到 3V3）。
+ * 说明：PA15 复位后是 JTAG 的 JTDI，工程里 HAL_MspInit() 已调用
+ *       __HAL_AFIO_REMAP_SWJ_NOJTAG() 把它释放成 GPIO，SWD 调试不受影响。
+ * ------------------------------------------------------------------------ */
+#define LED1_Pin          GPIO_PIN_15
+#define LED1_GPIO_Port    GPIOA
+
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

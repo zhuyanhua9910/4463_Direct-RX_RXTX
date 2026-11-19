@@ -74,6 +74,11 @@ typedef struct
 #define MODE_RAW_RX       0    /* 直收：解调比特流从 GPIO1 输出 */
 #define MODE_PACKET       1    /* 双向包收发（原有逻辑） */
 
+/* ---------- LED1（PA15，低电平点亮） ---------- */
+#define LED_ON()          HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_RESET)
+#define LED_OFF()         HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_SET)
+#define LED_FLASH_MS      80   /* 收到包 / 收到 ACK 的短闪时长 */
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -92,6 +97,9 @@ static uint8_t  gRole = ROLE_RX;             /* 当前角色：ROLE_TX / ROLE_RX
 static uint8_t ackBuf[8];/*应答帧缓冲区*/
 static uint32_t nextTx = 0;                  /* 下一次发送的节拍时刻（ms），切换模式时清 0 */
 
+static uint32_t ledOffTick = 0;              /* LED 定时熄灭时刻（0 = 无定时） */
+static uint8_t  ledSteady  = 0;              /* 1 = 常亮（直收模式），忽略定时熄灭 */
+
 /* 按键表：上电默认松开 */
 static Key_t s_keys[KEY_NUM] =
 {
@@ -109,10 +117,14 @@ static uint8_t g_modeReq = MODE_RAW_RX;
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 
-static uint8_t Role_Detect(void);
-static void    Key_Scan(void);
-static void    Mode_Update(void);
+static uint8_t Role_Detect(void);/*双向包主从模式选择*/
+static void    Key_Scan(void);/*按键扫描，S2直收模式，S3双向包正常收发模式*/
+static void    Mode_Update(void);/*模式切换，直收模式和双向包模式*/
 static void    RawRx_Loop(void);
+static void    Led_Init(void);
+static void    Led_Steady(uint8_t on);/*常亮长灭1/0*/
+static void    Led_Flash(uint32_t ms);/*点亮ms后熄灭*/
+static void    Led_Poll(void);
 
 /* USER CODE END PFP */
 
@@ -153,6 +165,9 @@ int main(void)
   MX_SPI2_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
+
+  /* LED1 在 MX_GPIO_Init() 之后再配：此时 GPIOA 时钟已开 */
+  Led_Init();
 
   /* ---- 角色选择：CHOOSE_MODE 高 = 发送，低 = 接收 ----
    * CHOOSE_MODE 已在 MX_GPIO_Init() 中配置为输入 + 上拉，这里只需读取 */
@@ -195,6 +210,7 @@ int main(void)
   g_mode    = MODE_RAW_RX;
   g_modeReq = MODE_RAW_RX;
   rc = wf4463_rawrx_start(APP_CHANNEL);
+  Led_Steady(1);                    /* 上电默认直收 → LED1 常亮 */
   printf("[MODE] RAW RX (GPIO1=RX_DATA) rc=%d   [S2=RAW  S3=PACKET]\r\n", rc);
 
   /* USER CODE END 2 */
@@ -210,6 +226,9 @@ int main(void)
 
     /* 按键请求的模式变更在这里落地（安全点执行，不在中断里做重活） */
     Mode_Update();
+
+    /* LED 定时熄灭（非阻塞，直收常亮时由 ledSteady 挡掉） */
+    Led_Poll();
 
     /* ---- 直收模式：芯片自己收，比特流从 GPIO1 出，MCU 只做保活 ---- */
     if (g_mode == MODE_RAW_RX)
@@ -248,6 +267,7 @@ int main(void)
             	if((ackN > 0) && (ackLen == 4) && (ackBuf[0] == ACK_HEAD_OK)&&(memcmp(&ackBuf[1],&txBuf[ACK_SEQ_OFS],3) == 0))
             	{
             		printf("  ACK  OK  < 0x%02x  %c%c%c\r\n",ackBuf[0],ackBuf[1],ackBuf[2],ackBuf[3] );
+            		Led_Flash(LED_FLASH_MS);   /* 主机：收到匹配的 ACK，短闪 */
             	}
             	else if((ackN > 0) && (ackLen == 5) && (ackBuf[0] == ACK_HEAD_FAIL) && (memcmp(&ackBuf[1],&txBuf[ACK_SEQ_OFS],3) == 0) )
             	{
@@ -298,6 +318,12 @@ int main(void)
         		ackLen = 5;
         	}
         	wf4463_tx(APP_CHANNEL, ackBuf,ackLen);
+
+        	/* 从机：收到有效包并已回 ACK，短闪；其余情况不亮 */
+        	if (ackBuf[0] == ACK_HEAD_OK)
+        	{
+        		Led_Flash(LED_FLASH_MS);
+        	}
 
         	wf4463_rx_start(APP_CHANNEL);/*进入接收*/
 
@@ -495,11 +521,13 @@ static void Mode_Update(void)
     {
         printf("[MODE] -> RAW RX (GPIO1=RX_DATA)\r\n");
         wf4463_rawrx_start(APP_CHANNEL);
+        Led_Steady(1);                  /* 直收模式：LED1 常亮 */
     }
     else
     {
         printf("[MODE] -> PACKET%s  (txSeq reset)\r\n", (gRole == ROLE_TX) ? " (TX)" : " (RX)");
         wf4463_packet_resume(APP_CHANNEL);
+        Led_Steady(0);                  /* 包模式：交给收包/收 ACK 短闪 */
     }
 
     /* 回读校验：XO_TUNE / PA 功率档 / 芯片状态，一眼看出配置有没有写坏 */
@@ -533,6 +561,74 @@ static void RawRx_Loop(void)
     {
         printf("[RAW] state=%u, re-arm\r\n", (unsigned)st);
         wf4463_rawrx_start(APP_CHANNEL);
+    }
+}
+
+/* ============================================================
+ * LED1（PA15，低电平点亮）
+ *
+ * 用法两种，互斥：
+ *   Led_Steady(1)     常亮 —— 直收模式
+ *   Led_Flash(80)     短闪 —— 收到包 / 收到 ACK
+ * 全程非阻塞：Flash 只负责点亮并记下到期时刻，由 Led_Poll()
+ * 在主循环里熄灭，不会占用主循环（从机等包只有 50ms、
+ * 主机等 ACK 只有 100ms，绝不能在这里 HAL_Delay）。
+ * ============================================================ */
+static void Led_Init(void)
+{
+    GPIO_InitTypeDef g = {0};
+
+    LED_OFF();                          /* 先写高电平（灭），避免上电闪一下 */
+
+    g.Pin   = LED1_Pin;
+    g.Mode  = GPIO_MODE_OUTPUT_PP;
+    g.Pull  = GPIO_NOPULL;
+    g.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(LED1_GPIO_Port, &g);
+
+    LED_OFF();
+}
+
+/* 常亮开关：on=1 常亮并屏蔽定时熄灭；on=0 熄灭并交回定时逻辑 */
+static void Led_Steady(uint8_t on)
+{
+    ledSteady  = on;
+    ledOffTick = 0;
+
+    if (on)
+    {
+        LED_ON();
+    }
+    else
+    {
+        LED_OFF();
+    }
+}
+
+/* 点亮 ms 毫秒，由 Led_Poll() 到期熄灭；常亮期间调用无效 */
+static void Led_Flash(uint32_t ms)
+{
+    if (ledSteady)
+    {
+        return;
+    }
+
+    LED_ON();
+    ledOffTick = HAL_GetTick() + ms;
+}
+
+/* 主循环调用：到点熄灭 */
+static void Led_Poll(void)
+{
+    if (ledSteady || (ledOffTick == 0u))
+    {
+        return;
+    }
+
+    if ((int32_t)(HAL_GetTick() - ledOffTick) >= 0)
+    {
+        LED_OFF();
+        ledOffTick = 0;
     }
 }
 
