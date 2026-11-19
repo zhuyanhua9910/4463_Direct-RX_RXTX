@@ -346,7 +346,7 @@ int8_t wf4463_rx_start(uint8_t channel)
 /*   32 = TX_STATE   E10 模块发射开关                                   */
 /*   33 = RX_STATE   E10 模块接收开关                                   */
 /*                                                                    */
-/* 双向包：GPIO2/GPIO3 驱动模块的收发开关，GPIO0/GPIO1 不动作           */
+/* 双向包：GPIO0/GPIO2 驱动模块的收发开关，GPIO1/GPIO3 不动作           */
 /* 直收  ：开关配置保持不变，额外把 GPIO1 配成 RX_DATA 输出比特流       */
 /* ------------------------------------------------------------------ */
 #define WF4463_GPIO_PULL_EN        0x40u
@@ -356,18 +356,19 @@ int8_t wf4463_rx_start(uint8_t channel)
 
 static void wf4463_gpio_packet(void)
 {
-    wf446x_gpio_pin_cfg(0x00u, 0x00u,
+    wf446x_gpio_pin_cfg(WF4463_GPIO_PULL_EN | WF4463_GPIO_MODE_RX_STATE,
+                        0x00u,
                         WF4463_GPIO_PULL_EN | WF4463_GPIO_MODE_TX_STATE,
-                        WF4463_GPIO_PULL_EN | WF4463_GPIO_MODE_RX_STATE,
+                        0x00u,
                         0x00u, 0x00u, 0x00u);
 }
 
 static void wf4463_gpio_rawrx(void)
 {
-    wf446x_gpio_pin_cfg(0x00u,
+    wf446x_gpio_pin_cfg(WF4463_GPIO_PULL_EN | WF4463_GPIO_MODE_RX_STATE,
                         WF4463_GPIO_PULL_EN | WF4463_GPIO_MODE_RX_DATA,
                         WF4463_GPIO_PULL_EN | WF4463_GPIO_MODE_TX_STATE,
-                        WF4463_GPIO_PULL_EN | WF4463_GPIO_MODE_RX_STATE,
+                        0x00u,
                         0x00u, 0x00u, 0x00u);
 }
 

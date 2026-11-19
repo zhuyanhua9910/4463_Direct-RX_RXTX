@@ -94,7 +94,7 @@ static uint8_t  txBuf[APP_PACKET_LEN + 1];   /* +1 给字符串结束符 */
 static uint8_t  rxBuf[64];
 static uint16_t txSeq = 0;
 static uint8_t  gRole = ROLE_RX;             /* 当前角色：ROLE_TX / ROLE_RX */
-static uint8_t ackBuf[8];/*应答帧缓冲区*/
+static uint8_t ackBuf[8];                    /*应答帧缓冲区*/
 static uint32_t nextTx = 0;                  /* 下一次发送的节拍时刻（ms），切换模式时清 0 */
 
 static uint32_t ledOffTick = 0;              /* LED 定时熄灭时刻（0 = 无定时） */
