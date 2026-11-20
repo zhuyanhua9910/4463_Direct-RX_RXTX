@@ -61,8 +61,10 @@ typedef struct
 #define ACK_HEAD_OK  0xA5  /*帧头：接收成功*/
 #define ACK_HEAD_FAIL 0x5A /*帧头：接收失败*/
 #define ACK_SEQ_OFS 9 /*WF  HELLO,共九字节，序号从第九字节开始*/
-#define ACK_TIMEOUT_MS 100 /*主机等应答的时间*/
+#define ACK_TIMEOUT_MS 1500 /*500bps 下等待完整应答，覆盖前导、同步和应答包空中时间*/
 #define ACK_ERR_LEN 0x01 /*错误码：长度/格式错误*/
+#define RX_PACKET_TIMEOUT_MS 1500 /*低速包接收轮询超时，不能在完整包到达前退出*/
+#define APP_TX_INTERVAL_MS 2000 /*低速模式发送节拍*/
 
 /* ---------- 按键扫描参数 ---------- */
 #define KEY_NUM           2     /* 按键个数：S2、S3 */
@@ -283,7 +285,7 @@ int main(void)
             		                           ackN, ackLen, (ackN > 0) ? ackBuf[0] : 0);
             	}
             }
-            nextTx = now + 500;
+            nextTx = now + APP_TX_INTERVAL_MS;
         }
     }
     else
@@ -294,7 +296,7 @@ int main(void)
         uint8_t  outLen = 0;
         int16_t  n;
 
-        n = wf4463_rx_fetch(rxBuf, sizeof(rxBuf), &outLen, 50);
+        n = wf4463_rx_fetch(rxBuf, sizeof(rxBuf), &outLen, RX_PACKET_TIMEOUT_MS);
 
         if (n > 0)
         {
@@ -513,7 +515,7 @@ static void Mode_Update(void)
     g_mode = g_modeReq;
 
     /* 每次切换模式都把双向包的发送序号和发送节拍清 0：
-       切回包模式后立刻从 #001 重新开始，不用等上一个 500ms 节拍 */
+       切回包模式后立刻从 #001 重新开始，不用等上一个发送节拍 */
     txSeq  = 0;
     nextTx = 0;
 
@@ -571,8 +573,8 @@ static void RawRx_Loop(void)
  *   Led_Steady(1)     常亮 —— 直收模式
  *   Led_Flash(80)     短闪 —— 收到包 / 收到 ACK
  * 全程非阻塞：Flash 只负责点亮并记下到期时刻，由 Led_Poll()
- * 在主循环里熄灭，不会占用主循环（从机等包只有 50ms、
- * 主机等 ACK 只有 100ms，绝不能在这里 HAL_Delay）。
+ * 在主循环里熄灭，不会占用主循环（从机收包和主机等 ACK 都是阻塞等待，
+ * 绝不能在这里再 HAL_Delay）。
  * ============================================================ */
 static void Led_Init(void)
 {
