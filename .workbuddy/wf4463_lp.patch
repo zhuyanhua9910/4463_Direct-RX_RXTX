@@ -1,0 +1,353 @@
+diff --git a/STM32F103C8T6_WF_DEMO/Core/Src/main.c b/STM32F103C8T6_WF_DEMO/Core/Src/main.c
+index 514cc07..92a7c19 100644
+--- a/STM32F103C8T6_WF_DEMO/Core/Src/main.c
++++ b/STM32F103C8T6_WF_DEMO/Core/Src/main.c
+@@ -79,6 +79,12 @@ typedef struct
+ #define LED_OFF()         HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_SET)
+ #define LED_FLASH_MS      80   /* 收到包 / 收到 ACK 的短闪时长 */
+ 
++/* ---------- 低功耗自检 ----------
++ * 改成 1 编译：上电后依次走一遍 四种低功耗档，串口打印唤醒原因，
++ * 然后自动恢复成原来的直收模式，不进入正常收发流程。
++ * 配合电流表看每次进睡后的电流（注意模块自带 LDO 的静态电流）。 */
++#define WF4463_LP_DEMO    0
++
+ /* USER CODE END PD */
+ 
+ /* Private macro -------------------------------------------------------------*/
+@@ -126,6 +132,10 @@ static void    Led_Steady(uint8_t on);/*常亮长灭1/0*/
+ static void    Led_Flash(uint32_t ms);/*点亮ms后熄灭*/
+ static void    Led_Poll(void);
+ 
++#if WF4463_LP_DEMO
++static void    Lp_Demo(void);/*四种低功耗档自检*/
++#endif
++
+ /* USER CODE END PFP */
+ 
+ /* Private user code ---------------------------------------------------------*/
+diff --git a/STM32F103C8T6_WF_DEMO/Core/Wf4464/Inc/wf4463_app.h b/STM32F103C8T6_WF_DEMO/Core/Wf4464/Inc/wf4463_app.h
+index 34c948a..f01eb76 100644
+--- a/STM32F103C8T6_WF_DEMO/Core/Wf4464/Inc/wf4463_app.h
++++ b/STM32F103C8T6_WF_DEMO/Core/Wf4464/Inc/wf4463_app.h
+@@ -155,6 +155,79 @@ int16_t wf4463_rssi_dbm(void);
+  */
+ int8_t wf4463_reset(void);
+ 
++/* ==================================================================
++ * 低功耗 / 休眠档
++ *
++ * 状态机里只有两个能主动进入的低功耗状态：SHUTDOWN（SDN 引脚）和
++ * SLEEP（CHANGE_STATE 0x01）。下面四种是"可落地的四档配置"：
++ *
++ *   STANDBY    SLEEP + WUT 关 + 32k 关        → 40 nA    440 µs 回 RX
++ *   SLEEP_RC   SLEEP + WUT + 32k 内部 RC      → 740 nA   可定时自醒
++ *   SENSOR     SLEEP + 32k RC + LBD           → 约 1 µA  低电压告警
++ *   SHUTDOWN   SDN 拉高                        → 30 nA    配置全丢，15 ms 冷启动
++ *
++ * 第 5 种 SLEEP + 外部 32.768 kHz 晶振在本板做不了：晶振必须跨接
++ * GPIO0/GPIO1，而这两脚已固定给 RX 开关和直收数据。
++ * ================================================================== */
++
++typedef enum
++{
++    WF4463_LP_STANDBY = 0,   /* 40 nA，最快，寄存器保持，但不会自己醒 */
++    WF4463_LP_SLEEP_RC,      /* 740 nA，WUT 定时唤醒（32k 内部 RC） */
++    WF4463_LP_SENSOR,        /* 约 1 µA，WUT + 低电压检测 */
++    WF4463_LP_SHUTDOWN       /* 30 nA，配置全部丢失 */
++} wf4463_lp_mode_t;
++
++typedef enum
++{
++    WF4463_WAKE_NONE = 0,
++    WF4463_WAKE_WUT,         /* 唤醒定时器到期 */
++    WF4463_WAKE_LOW_BATT,    /* 电池电压低于阈值（LBD） */
++    WF4463_WAKE_OTHER        /* 其它（收到包、CRC 错、FIFO 异常等） */
++} wf4463_wake_t;
++
++/**
++ * @brief  进入某一低功耗档
++ * @param  mode     档位
++ * @param  sleep_ms 退出条件用：WUT 周期（毫秒）。STANDBY/ SHUTDOWN 忽略
++ * @note   只有 SLEEP_RC / SENSOR 用得到 sleep_ms；范围约 0.03 ms ~ 3.7 天。
++ *         SLEEP 期间 WUT 才计数，处于 RX/TX 时不走，所以不会打断收包。
++ * @note   调用前请先停止收发、确认没有未处理的包（FIFO 里还有数据就先取走）。
++ */
++int8_t wf4463_lp_enter(wf4463_lp_mode_t mode, uint32_t sleep_ms);
++
++/**
++ * @brief  挂接收，并让芯片"收完一包自动回 SLEEP"
++ * @note   与 wf4463_rx_start() 唯一的区别是 START_RX 的 NEXT_STATE 给的是
++ *         SLEEP：收包成功 / CRC 错 / 超时都自动回睡，不需要 MCU 再补一次
++ *         CHANGE_STATE —— 这一步漏掉就会偷偷跑在 SPI ACTIVE(1.35 mA)。
++ * @note   进入前要有 WUT 或外部中断来叫醒，否则会一直睡着。
++ */
++int8_t wf4463_lp_rx_start(uint8_t channel);
++
++/**
++ * @brief  读唤醒原因（读完后芯片组中断已被清掉，nIRQ 回高）
++ * @note   只清芯片组，不动 PH/MODEM 挂起位，避免把刚收到的包标志抹掉。
++ */
++wf4463_wake_t wf4463_lp_wake_cause(void);
++
++/**
++ * @brief  设置 LBD 低电压阈值（GLOBAL_LOW_BATT_THRESH，5 bit）
++ * @param  thresh 原始值，芯片默认 0x18；电压换算见手册该属性
++ */
++int8_t wf4463_lp_lowbatt_thresh(uint8_t thresh);
++
++/**
++ * @brief  从 SHUTDOWN 唤醒（SDN 拉低 -> POR -> 重写整份配置）
++ * @note   SHUTDOWN 后寄存器全丢，必须走这一条才能继续收发。
++ */
++int8_t wf4463_lp_wake_from_shutdown(void);
++
++/**
++ * @brief  最近一次进入的低功耗档（上电默认 STANDBY）
++ */
++wf4463_lp_mode_t wf4463_lp_current(void);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/STM32F103C8T6_WF_DEMO/Core/Wf4464/Src/wf4463_app.c b/STM32F103C8T6_WF_DEMO/Core/Wf4464/Src/wf4463_app.c
+index acfb460..6fb3ba8 100644
+--- a/STM32F103C8T6_WF_DEMO/Core/Wf4464/Src/wf4463_app.c
++++ b/STM32F103C8T6_WF_DEMO/Core/Wf4464/Src/wf4463_app.c
+@@ -487,3 +487,236 @@ int16_t wf4463_rssi_dbm(void)
+     /* Wf446x: RSSI_dBm = RSSI/2 - 130 */
+     return (int16_t)(((int16_t)rssi / 2) - 130);
+ }
++
++/* ================================================================== */
++/* 低功耗 / 休眠档                                                    */
++/* ================================================================== */
++
++/* GLOBAL_CLK_CFG:CLK_32K_SEL —— 0=关 1=内部RC 2=外部晶振(本板不可用) */
++#define WF4463_LP_CLK_32K_OFF      0x00u
++#define WF4463_LP_CLK_32K_RC       0x01u
++
++/* GLOBAL_WUT_CONFIG 各位 */
++#define WF4463_LP_WUT_CAL_EN       0x01u   /* bit0 32k RC 周期校准 */
++#define WF4463_LP_WUT_EN           0x02u   /* bit1 唤醒定时器使能 */
++#define WF4463_LP_WUT_LBD_EN       0x04u   /* bit2 每个 WUT 间隔测一次电池电压 */
++
++/* INT_CTL_CHIP_ENABLE 里要打开的中断位 */
++#define WF4463_LP_CHIP_INT_WUT     0x01u
++#define WF4463_LP_CHIP_INT_LOWBATT 0x02u
++
++static wf4463_lp_mode_t s_lp_mode = WF4463_LP_STANDBY;
++
++/* ------------------------------------------------------------------ */
++/* 写 WUT 周期：T = M × 2^R / 32768 秒                                */
++/* WUT_CONFIG(4) / M_15_8(5) / M_7_0(6) / R(7) 四个属性连号，一次写完   */
++/* R 的 bit5 是 WUT_SLEEP：0 = 到期回 READY（可以直接收），1 = 留在睡  */
++/* ------------------------------------------------------------------ */
++static void wf4463_lp_write_wut(uint32_t ms, uint8_t wut_cfg, uint8_t clk_sel)
++{
++    uint64_t ticks;
++    uint32_t m;
++    uint8_t  r = 0u;
++    U8       clk_cur;
++    U8       clk_new;
++
++    /* 32k 时钟源必须先选好，WUT 才有计时基准。
++       读-改-写低 3 位（CLK_32K_SEL），别把分频时钟那些位一起抹掉。 */
++    wf446x_get_property(WF446X_PROP_GRP_ID_GLOBAL, 1u,
++                        WF446X_PROP_GRP_INDEX_GLOBAL_CLK_CFG);
++    clk_cur = Wf446xCmd.GET_PROPERTY.DATA0;
++    clk_new = (U8)((clk_cur & (U8)~0x07u) | (clk_sel & 0x07u));
++
++    if (clk_new != clk_cur)
++    {
++        wf446x_set_property(WF446X_PROP_GRP_ID_GLOBAL, 1u,
++                            WF446X_PROP_GRP_INDEX_GLOBAL_CLK_CFG, clk_new);
++    }
++
++    ticks = ((uint64_t)ms * 32768u) / 1000u;
++    if (ticks == 0u)
++    {
++        ticks = 1u;                       /* 最小 1 拍，避免 M=0 不计数 */
++    }
++
++    /* 用 R 把 M 压进 16 位：每升 1 级周期翻倍，精度换量程 */
++    while (((ticks >> r) > 0xFFFFu) && (r < 31u))
++    {
++        r++;
++    }
++    m = (uint32_t)(ticks >> r);
++    if (m == 0u)
++    {
++        m = 1u;
++    }
++
++    wf446x_set_property(WF446X_PROP_GRP_ID_GLOBAL, 4u,
++                        WF446X_PROP_GRP_INDEX_GLOBAL_WUT_CONFIG,
++                        wut_cfg,
++                        (U8)((m >> 8) & 0xFFu),
++                        (U8)(m & 0xFFu),
++                        (U8)(r & 0x1Fu));  /* bit5=0：到期回 READY */
++}
++
++/* ------------------------------------------------------------------ */
++/* 打开 nIRQ 上的芯片组中断（WUT / LBD）                              */
++/* radio_config.h 里 INT_CTL_CHIP_ENABLE 是 0x00，不打开的话定时器跑  */
++/* 得再准，nIRQ 也不会动，MCU 永远等不到唤醒。                         */
++/* 用读-改-写，避免覆盖别的使能位。                                    */
++/* ------------------------------------------------------------------ */
++static void wf4463_lp_chip_int_enable(uint8_t bits)
++{
++    U8 cur;
++
++    wf446x_get_property(WF446X_PROP_GRP_ID_INT_CTL, 1u,
++                        WF446X_PROP_GRP_INDEX_INT_CTL_CHIP_ENABLE);
++    cur = Wf446xCmd.GET_PROPERTY.DATA0;
++
++    if ((cur & bits) != bits)
++    {
++        wf446x_set_property(WF446X_PROP_GRP_ID_INT_CTL, 1u,
++                            WF446X_PROP_GRP_INDEX_INT_CTL_CHIP_ENABLE,
++                            (U8)(cur | bits));
++    }
++}
++
++/* ------------------------------------------------------------------ */
++/* 进入低功耗档                                                       */
++/* ------------------------------------------------------------------ */
++int8_t wf4463_lp_enter(wf4463_lp_mode_t mode, uint32_t sleep_ms)
++{
++    switch (mode)
++    {
++    case WF4463_LP_SHUTDOWN:
++        /* SDN 拉高进关断：寄存器全丢，回到工作态必须重新 init。
++           拉高后要保持 ≥10 µs，内部电容才放完电、POR 才可靠触发。 */
++        wf4463_irq_read_clear();
++        radio_hal_AssertShutdown();
++        HAL_Delay(2u);
++        s_lp_mode = mode;
++        return WF4463_OK;
++
++    case WF4463_LP_STANDBY:
++        /* WUT 与 32k 都关掉，SLEEP 剩下的部分就是 standby（40 nA） */
++        wf4463_lp_write_wut(0u, 0u, WF4463_LP_CLK_32K_OFF);
++        break;
++
++    case WF4463_LP_SLEEP_RC:
++        wf4463_lp_chip_int_enable(WF4463_LP_CHIP_INT_WUT);
++        wf4463_lp_write_wut(sleep_ms,
++                            WF4463_LP_WUT_EN | WF4463_LP_WUT_CAL_EN,
++                            WF4463_LP_CLK_32K_RC);
++        break;
++
++    case WF4463_LP_SENSOR:
++        wf4463_lp_chip_int_enable(WF4463_LP_CHIP_INT_WUT |
++                                  WF4463_LP_CHIP_INT_LOWBATT);
++        wf4463_lp_write_wut(sleep_ms,
++                            WF4463_LP_WUT_EN | WF4463_LP_WUT_LBD_EN,
++                            WF4463_LP_CLK_32K_RC);
++        break;
++
++    default:
++        return WF4463_ERR_PARAM;
++    }
++
++    /* ★ 关键：上面每一次 SPI 事务都会把芯片推到 SPI ACTIVE(1.35 mA)，
++       而且 nIRQ 上只要还挂着未读中断，电流也降不到手册值。
++       所以进睡前最后一步必须是"读干净中断"，然后才 CHANGE_STATE。 */
++    wf4463_irq_read_clear();
++
++    wf446x_change_state(WF446X_CMD_CHANGE_STATE_ARG_NEW_STATE_ENUM_SLEEP);
++    s_lp_mode = mode;
++
++    return WF4463_OK;
++}
++
++/* ------------------------------------------------------------------ */
++/* 挂接收 + 收完自动回睡                                              */
++/* ------------------------------------------------------------------ */
++int8_t wf4463_lp_rx_start(uint8_t channel)
++{
++    /* 与 wf4463_rx_start() 同样的准备动作：恢复变长包上限、回 READY、清 FIFO */
++    wf446x_set_property(WF446X_PROP_GRP_ID_PKT, 2u,
++                        WF446X_PROP_GRP_INDEX_PKT_FIELD_2_LENGTH_12_8,
++                        0x1Fu, 0xFFu);
++
++    wf446x_change_state(WF446X_CMD_CHANGE_STATE_ARG_NEW_STATE_ENUM_READY);
++    (void)radio_comm_PollCTS();
++
++    wf446x_fifo_info(0x02u);
++    wf4463_irq_read_clear();
++
++    /* 三个 NEXT_STATE 全给 SLEEP：收包成功 / CRC 错 / 超时，芯片都自己回睡。
++       这样即使应用层忘了补 CHANGE_STATE，也不会一直泡在 1.35 mA 里。 */
++    wf446x_start_rx(channel, 0u, 0u,
++                    WF446X_CMD_CHANGE_STATE_ARG_NEW_STATE_ENUM_SLEEP,
++                    WF446X_CMD_CHANGE_STATE_ARG_NEW_STATE_ENUM_SLEEP,
++                    WF446X_CMD_CHANGE_STATE_ARG_NEW_STATE_ENUM_SLEEP);
++
++    return WF4463_OK;
++}
++
++/* ------------------------------------------------------------------ */
++/* 唤醒原因                                                           */
++/* 只清芯片组：PH/MODEM 的挂起位要留给 rx_fetch()，                              */
++/* 在这里一起清掉的话，刚收到的包标志就没了。                          */
++/* ------------------------------------------------------------------ */
++wf4463_wake_t wf4463_lp_wake_cause(void)
++{
++    wf4463_wake_t cause = WF4463_WAKE_NONE;
++
++    wf446x_get_int_status(0u, 0u, 0u);          /* 先只读 */
++    s_ph_pend    = Wf446xCmd.GET_INT_STATUS.PH_PEND;
++    s_modem_pend = Wf446xCmd.GET_INT_STATUS.MODEM_PEND;
++    s_chip_pend  = Wf446xCmd.GET_INT_STATUS.CHIP_PEND;
++
++    if ((s_chip_pend & WF446X_CMD_GET_INT_STATUS_REP_LOW_BATT_PEND_MASK) != 0u)
++    {
++        cause = WF4463_WAKE_LOW_BATT;
++    }
++    else if ((s_chip_pend & WF446X_CMD_GET_INT_STATUS_REP_WUT_PEND_MASK) != 0u)
++    {
++        cause = WF4463_WAKE_WUT;
++    }
++    else if ((s_ph_pend != 0u) || (s_modem_pend != 0u))
++    {
++        cause = WF4463_WAKE_OTHER;
++    }
++
++    wf446x_get_int_status(0u, 0u, s_chip_pend); /* 再只清芯片组 */
++
++    return cause;
++}
++
++/* ------------------------------------------------------------------ */
++/* LBD 阈值                                                           */
++/* ------------------------------------------------------------------ */
++int8_t wf4463_lp_lowbatt_thresh(uint8_t thresh)
++{
++    wf446x_set_property(WF446X_PROP_GRP_ID_GLOBAL, 1u,
++                        WF446X_PROP_GRP_INDEX_GLOBAL_LOW_BATT_THRESH,
++                        (U8)(thresh & 0x1Fu));
++
++    return WF4463_OK;
++}
++
++/* ------------------------------------------------------------------ */
++/* 从 SHUTDOWN 恢复                                                   */
++/* ------------------------------------------------------------------ */
++int8_t wf4463_lp_wake_from_shutdown(void)
++{
++    int8_t rc;
++
++    s_lp_mode = WF4463_LP_STANDBY;
++
++    /* wf4463_init() 内部就是 SDN 高->低 + POR 等待 + 重写整份配置 */
++    rc = wf4463_init();
++
++    return rc;
++}
++
++wf4463_lp_mode_t wf4463_lp_current(void)
++{
++    return s_lp_mode;
++}

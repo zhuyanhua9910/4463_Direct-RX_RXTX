@@ -155,6 +155,59 @@ int16_t wf4463_rssi_dbm(void);
  */
 int8_t wf4463_reset(void);
 
+/* ==================================================================
+ * 低功耗（休眠档）
+ *
+ * 芯片状态机里只有两个能主动进入的低功耗状态：SHUTDOWN（SDN 引脚）
+ * 和 SLEEP（CHANGE_STATE 0x01）。下面四档是"可落地的四种配置"：
+ *
+ *   STANDBY   SLEEP + WUT 关 + 32k 关      → 40 nA
+ *   SLEEP_RC  SLEEP + WUT + 32k 内部 RC    → 740 nA
+ *   SENSOR    SLEEP + 32k RC + LBD         → 约 1 µA
+ *   SHUTDOWN  SDN 拉高                      → 30 nA（配置全丢）
+ *
+ * 第五种 SLEEP + 外部 32.768 kHz 晶振本板做不了：官方要求晶振跨接
+ * GPIO0/GPIO1，而这两脚已固定给 RX 开关和直收数据。
+ * ================================================================== */
+
+typedef enum
+{
+    WF4463_LP_STANDBY = 0,   /* 40 nA，唤醒最快 */
+    WF4463_LP_SLEEP_RC,      /* 740 nA，WUT 与 32k RC 在跑 */
+    WF4463_LP_SENSOR,        /* 约 1 µA，另加低电压检测 */
+    WF4463_LP_SHUTDOWN       /* 30 nA，寄存器全丢 */
+} wf4463_lp_mode_t;
+
+/**
+ * @brief  进入指定休眠档（含 SHUTDOWN）
+ * @param  mode     档位
+ * @param  sleep_ms WUT 周期（毫秒）。STANDBY / SHUTDOWN 忽略此参数
+ * @note   本工程的用法是"上电睡一次、按键后不再睡"，所以 WUT 到期
+ *         一律留在 SLEEP 只置中断标志，不会自己跳回 READY(1.8 mA)。
+ * @note   SLEEP_RC / SENSOR 的 WUT 中断不接到 nIRQ，避免到期后
+ *         nIRQ 一直为低把电流顶上去。SENSOR 的 LBD 中断是接的。
+ */
+int8_t wf4463_lp_enter(wf4463_lp_mode_t mode, uint32_t sleep_ms);
+
+/**
+ * @brief  把芯片从休眠档叫醒，回到可收发的工作态
+ * @note   SLEEP 档：任何一次 SPI 访问都会让它自动回到 SPI ACTIVE，
+ *         这里读一次中断状态落实并清掉残留标志。
+ * @note   SHUTDOWN 档：寄存器已丢失，必须重走 wf4463_init()（约 120 ms）。
+ */
+int8_t wf4463_lp_wake(void);
+
+/**
+ * @brief  设置 LBD 低电压阈值（GLOBAL_LOW_BATT_THRESH，5 bit）
+ * @param  thresh 原始值；芯片默认 0x18。电压换算见手册该属性
+ */
+int8_t wf4463_lp_lowbatt_thresh(uint8_t thresh);
+
+/**
+ * @brief  档位名字，打印用
+ */
+const char *wf4463_lp_name(wf4463_lp_mode_t mode);
+
 #ifdef __cplusplus
 }
 #endif

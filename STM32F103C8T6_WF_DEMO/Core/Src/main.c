@@ -73,6 +73,22 @@ typedef struct
 /* ---------- 工作模式 ---------- */
 #define MODE_RAW_RX       0    /* 直收：解调比特流从 GPIO1 输出 */
 #define MODE_PACKET       1    /* 双向包收发（原有逻辑） */
+#define MODE_SLEEP        2    /* 上电休眠中，还没按过 S2/S3（单向，出不去回不来） */
+
+/* ---------- 上电休眠档（编译期四选一） ----------
+ * BOOT_LP_ENABLE 置 0：编译结果与改造前完全一致（上电直接直收、LED 常亮），
+ *                      用于 A/B 对比或紧急回退。
+ * 档位四选一：
+ *   WF4463_LP_STANDBY    40 nA   SLEEP，WUT 与 32k 全关
+ *   WF4463_LP_SLEEP_RC   740 nA  SLEEP + WUT + 32k 内部 RC
+ *   WF4463_LP_SENSOR     ~1 µA   SLEEP + 32k RC + 低电压检测
+ *   WF4463_LP_SHUTDOWN   30 nA   SDN 拉高，寄存器全丢（首次按键要冷启动 ~120 ms）
+ * 本工程不用 WUT 唤醒，周期只决定"定时器多久跑一轮"，
+ * 到期也留在 SLEEP 只置标志，不会自己跳回 READY(1.8 mA)。
+ */
+#define BOOT_LP_ENABLE     1
+#define BOOT_LP_MODE       WF4463_LP_SHUTDOWN
+#define BOOT_LP_WUT_MS     3600000   /* 1 小时 */
 
 /* ---------- LED1（PA15，低电平点亮） ---------- */
 #define LED_ON()          HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_RESET)
@@ -204,14 +220,23 @@ int main(void)
   }
 
 
-  /* ---- 上电默认进直收模式 ----
-   * S2 = 直收，S3 = 双向包，运行时随时可切（在 Mode_Update() 里执行）。
-   * 两种模式共用同一份射频配置，切换只重配 GPIO 和接收状态。 */
+  /* ---- 上电：先按宏把芯片配成休眠，等 S2 / S3 ----
+   * 一旦按键进入工作模式，之后就不再回到休眠（MODE_SLEEP 是单向出口）。
+   * S2 = 直收，S3 = 双向包，两者之间仍可随时互切（在 Mode_Update() 里执行）。 */
+#if BOOT_LP_ENABLE
+  rc = wf4463_lp_enter(BOOT_LP_MODE, BOOT_LP_WUT_MS);
+  Led_Steady(0);                    /* 休眠态 LED 必须是灭的 */
+  g_mode    = MODE_SLEEP;
+  g_modeReq = MODE_SLEEP;
+  printf("[BOOT] LP=%s rc=%d   waiting S2=RAW / S3=PACKET\r\n",
+         wf4463_lp_name(BOOT_LP_MODE), rc);
+#else
   g_mode    = MODE_RAW_RX;
   g_modeReq = MODE_RAW_RX;
   rc = wf4463_rawrx_start(APP_CHANNEL);
   Led_Steady(1);                    /* 上电默认直收 → LED1 常亮 */
   printf("[MODE] RAW RX (GPIO1=RX_DATA) rc=%d   [S2=RAW  S3=PACKET]\r\n", rc);
+#endif
 
   /* USER CODE END 2 */
 
@@ -229,6 +254,15 @@ int main(void)
 
     /* LED 定时熄灭（非阻塞，直收常亮时由 ledSteady 挡掉） */
     Led_Poll();
+
+    /* ---- 休眠态：只扫按键，一律不碰芯片 ----
+       任何一次 SPI 访问都会把芯片从 SLEEP 拉回 SPI ACTIVE(1.35 mA)，
+       所以这里连状态查询都不做。按下 S2/S3 后的唤醒由上面的
+       Mode_Update() 负责。 */
+    if (g_mode == MODE_SLEEP)
+    {
+        continue;
+    }
 
     /* ---- 直收模式：芯片自己收，比特流从 GPIO1 出，MCU 只做保活 ---- */
     if (g_mode == MODE_RAW_RX)
@@ -508,6 +542,24 @@ static void Mode_Update(void)
     if (g_modeReq == g_mode)
     {
         return;
+    }
+
+    /* ---- 从休眠态出来：先把芯片叫醒，再进目标模式 ----
+     * SLEEP 档：一次 SPI 访问就会让它自动回到 SPI ACTIVE，几微秒；
+     * SHUTDOWN 档：寄存器已丢失，必须先冷启动重配（约 120 ms）。 */
+    if (g_mode == MODE_SLEEP)
+    {
+        int8_t wrc = wf4463_lp_wake();
+
+        printf("[WAKE] %s\r\n", (wrc == WF4463_OK) ? "ok" : "FAILED");
+
+        if (wrc != WF4463_OK)
+        {
+            /* 唤醒失败就不要硬走：留在休眠态，下次按键再试。
+               直接把 g_mode 改成工作模式会对着一个没配置的芯片发命令。 */
+            g_modeReq = MODE_SLEEP;
+            return;
+        }
     }
 
     g_mode = g_modeReq;
